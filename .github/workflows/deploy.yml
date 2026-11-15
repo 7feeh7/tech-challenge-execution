@@ -1,0 +1,136 @@
+name: Deploy Application
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "terraform/**"
+      - "docs/**"
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  K8S_NAMESPACE: execution
+  TF_ENVIRONMENT: producao
+
+concurrency:
+  group: deploy-execution-producao
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Build e Testes
+    runs-on: ubuntu-latest
+    env:
+      DYNAMODB_ENDPOINT: http://localhost:8000
+    services:
+      dynamodb:
+        image: amazon/dynamodb-local:latest
+        ports:
+          - 8000:8000
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: yarn
+
+      - run: yarn install --frozen-lockfile
+      - run: yarn lint
+      - run: yarn build
+      - run: yarn test:cov
+
+  deploy:
+    name: Deploy no EKS
+    if: github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    environment: producao
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Resolver parametros via SSM
+        id: ssm
+        run: |
+          PREFIX="/tech-challenge/${{ env.TF_ENVIRONMENT }}"
+          ECR=$(aws ssm get-parameter --name "${PREFIX}/infra/execution_ecr_repository_url" --query Parameter.Value --output text 2>/dev/null || echo "")
+          if [ -z "$ECR" ]; then
+            echo "ECR ainda não publicado no SSM; confirmar após terraform apply na E37"
+            ECR="PLACEHOLDER_ECR"
+          fi
+          EKS=$(aws ssm get-parameter --name "${PREFIX}/infra/eks_cluster_name" --query Parameter.Value --output text)
+          IRSA=$(aws ssm get-parameter --name "${PREFIX}/infra/execution_irsa_role_arn" --query Parameter.Value --output text)
+          API_GATEWAY_URL=$(aws ssm get-parameter --name "${PREFIX}/infra/api_gateway_url" --query Parameter.Value --output text)
+          EXECUTION_IN=$(aws ssm get-parameter --name "${PREFIX}/infra/execution_in_queue_url" --query Parameter.Value --output text 2>/dev/null || echo "")
+          echo "ecr=$ECR" >> $GITHUB_OUTPUT
+          echo "eks=$EKS" >> $GITHUB_OUTPUT
+          echo "irsa=$IRSA" >> $GITHUB_OUTPUT
+          echo "api_gateway_url=$API_GATEWAY_URL" >> $GITHUB_OUTPUT
+          echo "execution_in=$EXECUTION_IN" >> $GITHUB_OUTPUT
+
+      - uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build e push imagem (SHA imutavel)
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+          ECR_REPOSITORY: ${{ steps.ssm.outputs.ecr }}
+        run: |
+          docker build -t "$ECR_REPOSITORY:$IMAGE_TAG" .
+          docker push "$ECR_REPOSITORY:$IMAGE_TAG"
+
+      - name: Configurar kubectl
+        run: |
+          aws eks update-kubeconfig \
+            --region "$AWS_REGION" \
+            --name "${{ steps.ssm.outputs.eks }}"
+
+      - name: ServiceAccount e ConfigMap
+        env:
+          IRSA_ARN: ${{ steps.ssm.outputs.irsa }}
+          API_GATEWAY_URL: ${{ steps.ssm.outputs.api_gateway_url }}
+          SQS_EXECUTION_IN_URL: ${{ steps.ssm.outputs.execution_in }}
+        run: |
+          sed "s|EXECUTION_IRSA_ROLE_ARN|${IRSA_ARN}|g" k8s/serviceaccount.yaml | kubectl apply -f -
+          sed -e "s|__API_GATEWAY_URL__|${API_GATEWAY_URL}|g" \
+              -e "s|__SQS_EXECUTION_IN_URL__|${SQS_EXECUTION_IN_URL}|g" \
+              k8s/configmap.yaml | kubectl apply -f -
+
+      - name: Deployment, Service e HPA
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+          ECR_REPOSITORY: ${{ steps.ssm.outputs.ecr }}
+        run: |
+          sed -e "s|ECR_REPOSITORY_URL:__IMAGE_TAG__|${ECR_REPOSITORY}:${IMAGE_TAG}|g" \
+              -e "s|__IMAGE_TAG__|${IMAGE_TAG}|g" \
+              k8s/deployment.yaml | kubectl apply -f -
+          kubectl apply -f k8s/service.yaml
+          kubectl apply -f k8s/hpa.yaml
+
+      - name: Aguardar rollout
+        run: |
+          kubectl rollout status deployment/execution-api \
+            --namespace "$K8S_NAMESPACE" --timeout=180s
+
+      - name: Smoke test — health readiness
+        run: |
+          kubectl run smoke-execution-${{ github.run_id }} \
+            --namespace "$K8S_NAMESPACE" \
+            --image=curlimages/curl:8.5.0 \
+            --restart=Never \
+            --command -- sleep 300
+          kubectl wait --for=condition=Ready pod/smoke-execution-${{ github.run_id }} \
+            --namespace "$K8S_NAMESPACE" --timeout=60s
+          kubectl exec smoke-execution-${{ github.run_id }} -n "$K8S_NAMESPACE" -- \
+            curl -sf "http://execution-api/health/ready"
+          kubectl delete pod smoke-execution-${{ github.run_id }} -n "$K8S_NAMESPACE"
