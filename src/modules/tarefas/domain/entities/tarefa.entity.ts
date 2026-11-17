@@ -6,6 +6,7 @@ import {
 } from '../errors/tarefa.errors';
 import { SituacaoTarefa } from '../situacao-tarefa.enum';
 import { montarTarefaId } from '../tarefa-id';
+import type { TipoDivergenciaPeca } from '../tipo-divergencia-peca.enum';
 import type { TipoTarefa } from '../tipo-tarefa.enum';
 
 export interface ItemDiagnostico {
@@ -28,9 +29,11 @@ export interface ItemUtilizado {
 
 export interface DivergenciaPeca {
   itemId: string;
+  tipo: TipoDivergenciaPeca;
   quantidadePrevista: number;
   quantidadeUtilizada: number;
   observacao: string;
+  justificativa?: string;
 }
 
 export interface VeiculoTarefa {
@@ -47,6 +50,7 @@ export interface ExecucaoReparoGravada {
   servicosRealizados: ItemUtilizado[];
   pecasUtilizadas: ItemUtilizado[];
   divergencias: DivergenciaPeca[];
+  responsavelOperacaoId: string;
   motivoFalha: string | null;
 }
 
@@ -68,6 +72,7 @@ export interface TarefaProps {
   servicosRealizados: ItemUtilizado[];
   pecasUtilizadas: ItemUtilizado[];
   divergencias: DivergenciaPeca[];
+  responsavelOperacaoId: string | null;
   motivoFalha: string | null;
   falhouEm: Date | null;
   criadoEm: Date;
@@ -105,6 +110,7 @@ export class Tarefa {
       servicosRealizados: [],
       pecasUtilizadas: [],
       divergencias: [],
+      responsavelOperacaoId: null,
       motivoFalha: null,
       falhouEm: null,
       iniciadoEm: null,
@@ -169,6 +175,9 @@ export class Tarefa {
   }
   get divergencias(): DivergenciaPeca[] {
     return this.props.divergencias;
+  }
+  get responsavelOperacaoId(): string | null {
+    return this.props.responsavelOperacaoId;
   }
   get motivoFalha(): string | null {
     return this.props.motivoFalha;
@@ -285,6 +294,7 @@ export class Tarefa {
     this.props.servicosRealizados = execucao.servicosRealizados;
     this.props.pecasUtilizadas = execucao.pecasUtilizadas;
     this.props.divergencias = execucao.divergencias;
+    this.props.responsavelOperacaoId = execucao.responsavelOperacaoId;
     this.props.motivoFalha = execucao.motivoFalha;
   }
 

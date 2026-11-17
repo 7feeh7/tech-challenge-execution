@@ -47,6 +47,7 @@ export class DynamoDbTarefaMapper {
       servicosRealizados: tarefa.servicosRealizados,
       pecasUtilizadas: tarefa.pecasUtilizadas,
       divergencias: tarefa.divergencias,
+      responsavelOperacaoId: tarefa.responsavelOperacaoId ?? undefined,
       motivoFalha: tarefa.motivoFalha ?? undefined,
       falhouEm: tarefa.falhouEm?.toISOString(),
       criadoEm: tarefa.criadoEm.toISOString(),
@@ -86,6 +87,8 @@ export class DynamoDbTarefaMapper {
         (registro.servicosRealizados as ItemUtilizado[]) ?? [],
       pecasUtilizadas: (registro.pecasUtilizadas as ItemUtilizado[]) ?? [],
       divergencias: (registro.divergencias as DivergenciaPeca[]) ?? [],
+      responsavelOperacaoId:
+        (registro.responsavelOperacaoId as string | undefined) ?? null,
       motivoFalha: (registro.motivoFalha as string | undefined) ?? null,
       falhouEm: paraData(registro.falhouEm),
       criadoEm: new Date(String(registro.criadoEm)),

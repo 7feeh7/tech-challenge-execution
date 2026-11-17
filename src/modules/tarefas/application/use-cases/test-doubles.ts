@@ -46,7 +46,7 @@ export const criarTarefaReparoFake = (rodada = 1): Tarefa =>
       },
       {
         tipo: 'PECA',
-        itemId: 'peca-1',
+        itemId: '6ba7b810-9dad-11d1-80b4-00c04fd430c8',
         nome: 'Pastilha',
         quantidade: 2,
       },
