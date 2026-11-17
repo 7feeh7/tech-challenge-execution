@@ -75,6 +75,10 @@ export interface TarefaProps {
   responsavelOperacaoId: string | null;
   motivoFalha: string | null;
   falhouEm: Date | null;
+  interrompidaEm: Date | null;
+  canceladaEm: Date | null;
+  motivoCancelamento: string | null;
+  fatoTerminalEventId: string | null;
   criadoEm: Date;
   iniciadoEm: Date | null;
   devolvidaEm: Date | null;
@@ -113,6 +117,10 @@ export class Tarefa {
       responsavelOperacaoId: null,
       motivoFalha: null,
       falhouEm: null,
+      interrompidaEm: null,
+      canceladaEm: null,
+      motivoCancelamento: null,
+      fatoTerminalEventId: null,
       iniciadoEm: null,
       devolvidaEm: null,
       concluidaEm: null,
@@ -185,6 +193,18 @@ export class Tarefa {
   get falhouEm(): Date | null {
     return this.props.falhouEm;
   }
+  get interrompidaEm(): Date | null {
+    return this.props.interrompidaEm;
+  }
+  get canceladaEm(): Date | null {
+    return this.props.canceladaEm;
+  }
+  get motivoCancelamento(): string | null {
+    return this.props.motivoCancelamento;
+  }
+  get fatoTerminalEventId(): string | null {
+    return this.props.fatoTerminalEventId;
+  }
   get criadoEm(): Date {
     return this.props.criadoEm;
   }
@@ -214,7 +234,18 @@ export class Tarefa {
   estaEncerradaReparo(): boolean {
     return (
       this.props.situacao === SituacaoTarefa.CONCLUIDA ||
-      this.props.situacao === SituacaoTarefa.FALHOU
+      this.props.situacao === SituacaoTarefa.FALHOU ||
+      this.props.situacao === SituacaoTarefa.INTERROMPIDA ||
+      this.props.situacao === SituacaoTarefa.CANCELADA
+    );
+  }
+
+  estaTerminal(): boolean {
+    return (
+      this.props.situacao === SituacaoTarefa.CONCLUIDA ||
+      this.props.situacao === SituacaoTarefa.FALHOU ||
+      this.props.situacao === SituacaoTarefa.INTERROMPIDA ||
+      this.props.situacao === SituacaoTarefa.CANCELADA
     );
   }
 
@@ -264,6 +295,54 @@ export class Tarefa {
     this.props.situacao = SituacaoTarefa.EM_ANDAMENTO;
     this.props.conclusaoPendente = null;
     this.atualizar(agora);
+  }
+
+  cancelarSemInicio(motivo: string | null, agora: Date): void {
+    this.exigirSituacao('cancelar', [SituacaoTarefa.PENDENTE]);
+    this.props.situacao = SituacaoTarefa.CANCELADA;
+    this.props.motivoCancelamento = motivo;
+    this.props.canceladaEm = agora;
+    this.atualizar(agora);
+  }
+
+  cancelarEmAndamento(motivo: string | null, agora: Date): void {
+    this.exigirSituacao('cancelar em andamento', [
+      SituacaoTarefa.EM_ANDAMENTO,
+      SituacaoTarefa.CONCLUSAO_EM_ANDAMENTO,
+    ]);
+    this.props.situacao = SituacaoTarefa.CANCELADA;
+    this.props.motivoCancelamento = motivo;
+    this.props.canceladaEm = agora;
+    this.props.conclusaoPendente = null;
+    this.atualizar(agora);
+  }
+
+  solicitarInterrupcao(agora: Date): void {
+    this.exigirSituacao('solicitar interrupção', [SituacaoTarefa.EM_ANDAMENTO]);
+    this.props.situacao = SituacaoTarefa.INTERRUPCAO_SOLICITADA;
+    this.atualizar(agora);
+  }
+
+  interromperReparo(execucao: ExecucaoReparoGravada, agora: Date): void {
+    this.exigirSituacao('interromper o reparo', [
+      SituacaoTarefa.INTERRUPCAO_SOLICITADA,
+    ]);
+    this.props.situacao = SituacaoTarefa.INTERROMPIDA;
+    this.gravarExecucaoReparo(execucao);
+    this.props.interrompidaEm = agora;
+    this.atualizar(agora);
+  }
+
+  atribuirMotivoCancelamento(motivo: string | null): void {
+    if (this.props.motivoCancelamento === null && motivo) {
+      this.props.motivoCancelamento = motivo;
+    }
+  }
+
+  registrarFatoTerminalEventId(eventId: string): void {
+    if (!this.props.fatoTerminalEventId) {
+      this.props.fatoTerminalEventId = eventId;
+    }
   }
 
   concluirReparo(execucao: ExecucaoReparoGravada, agora: Date): void {

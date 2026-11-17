@@ -22,6 +22,7 @@ import type {
 } from '../../application/ports/tarefa.gateway';
 import type { Tarefa } from '../../domain/entities/tarefa.entity';
 import { CursorTarefasInvalidoError } from '../../domain/errors/tarefa.errors';
+import { TIPO_REGISTRO_MARCADOR_BLOQUEIO } from '../../domain/marcador-bloqueio';
 import { DynamoDbTarefaMapper } from './dynamodb-tarefa.mapper';
 
 @Injectable()
@@ -54,6 +55,37 @@ export class DynamoDbTarefaGateway
       pk: id,
     });
     return registro !== null;
+  }
+
+  async gravarMarcadorBloqueio(
+    contexto: ContextoTransacao,
+    id: string,
+    cancelamentoEventId: string,
+    ordemServicoId: string,
+    rodada: number,
+    tipoTarefa: string,
+  ): Promise<void> {
+    const ctx = obterContextoDynamodb(contexto);
+    const agora = new Date().toISOString();
+    ctx.adicionarEscrita({
+      Put: {
+        TableName: ctx.nomeTabelaTarefas(),
+        Item: marshall(
+          {
+            pk: id,
+            tipo: TIPO_REGISTRO_MARCADOR_BLOQUEIO,
+            ordemServicoId,
+            rodada,
+            tipoTarefa,
+            cancelamentoEventId,
+            criadoEm: agora,
+            atualizadoEm: agora,
+          },
+          { removeUndefinedValues: true },
+        ),
+        ConditionExpression: 'attribute_not_exists(pk)',
+      },
+    });
   }
 
   async criar(contexto: ContextoTransacao, tarefa: Tarefa): Promise<void> {

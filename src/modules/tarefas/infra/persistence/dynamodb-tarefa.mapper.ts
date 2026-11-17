@@ -50,6 +50,10 @@ export class DynamoDbTarefaMapper {
       responsavelOperacaoId: tarefa.responsavelOperacaoId ?? undefined,
       motivoFalha: tarefa.motivoFalha ?? undefined,
       falhouEm: tarefa.falhouEm?.toISOString(),
+      interrompidaEm: tarefa.interrompidaEm?.toISOString(),
+      canceladaEm: tarefa.canceladaEm?.toISOString(),
+      motivoCancelamento: tarefa.motivoCancelamento ?? undefined,
+      fatoTerminalEventId: tarefa.fatoTerminalEventId ?? undefined,
       criadoEm: tarefa.criadoEm.toISOString(),
       iniciadoEm: tarefa.iniciadoEm?.toISOString(),
       devolvidaEm: tarefa.devolvidaEm?.toISOString(),
@@ -91,6 +95,12 @@ export class DynamoDbTarefaMapper {
         (registro.responsavelOperacaoId as string | undefined) ?? null,
       motivoFalha: (registro.motivoFalha as string | undefined) ?? null,
       falhouEm: paraData(registro.falhouEm),
+      interrompidaEm: paraData(registro.interrompidaEm),
+      canceladaEm: paraData(registro.canceladaEm),
+      motivoCancelamento:
+        (registro.motivoCancelamento as string | undefined) ?? null,
+      fatoTerminalEventId:
+        (registro.fatoTerminalEventId as string | undefined) ?? null,
       criadoEm: new Date(String(registro.criadoEm)),
       iniciadoEm: paraData(registro.iniciadoEm),
       devolvidaEm: paraData(registro.devolvidaEm),

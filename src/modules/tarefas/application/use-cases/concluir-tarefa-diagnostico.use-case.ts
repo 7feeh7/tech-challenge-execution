@@ -10,6 +10,7 @@ import {
   ConclusaoRecusadaPeloOsConflitoError,
   ConclusaoRecusadaPeloOsError,
   TarefaNaoEncontradaError,
+  TarefaSituacaoInvalidaError,
   TarefaTipoInvalidoError,
 } from '../../domain/errors/tarefa.errors';
 import { SituacaoTarefa } from '../../domain/situacao-tarefa.enum';
@@ -93,6 +94,12 @@ export class ConcluirTarefaDiagnosticoUseCase {
             tarefa.tipo,
           );
         }
+        if (tarefa.situacao === SituacaoTarefa.CANCELADA) {
+          throw new TarefaSituacaoInvalidaError('concluir', tarefa.situacao, [
+            SituacaoTarefa.EM_ANDAMENTO,
+            SituacaoTarefa.CONCLUSAO_EM_ANDAMENTO,
+          ]);
+        }
 
         // Nova tentativa após resposta indeterminada reenvia o payload gravado
         // e ignora o conteúdo novo, para manter a mesma chave idempotente.
@@ -121,6 +128,11 @@ export class ConcluirTarefaDiagnosticoUseCase {
           throw new TarefaNaoEncontradaError(tarefaId);
         }
 
+        if (tarefa.situacao === SituacaoTarefa.CANCELADA) {
+          throw new TarefaSituacaoInvalidaError('concluir', tarefa.situacao, [
+            SituacaoTarefa.CONCLUSAO_EM_ANDAMENTO,
+          ]);
+        }
         // Outra chamada concorrente já aplicou o mesmo 200 idempotente do OS.
         if (tarefa.situacao !== SituacaoTarefa.CONCLUIDA) {
           tarefa.concluir(this.agora());

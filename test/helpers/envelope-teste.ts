@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { TipoTarefa } from '@/modules/tarefas/domain/tipo-tarefa.enum';
 import {
+  COMANDO_CANCELAR_TAREFA,
   COMANDO_INICIAR_DIAGNOSTICO,
   COMANDO_INICIAR_REPARO,
   type EnvelopeMensagem,
@@ -61,6 +63,31 @@ export function criarComandoIniciarReparo(
           quantidade: 2,
         },
       ],
+    },
+    ...patch,
+  };
+}
+
+export function criarComandoCancelarTarefa(
+  patch: Partial<EnvelopeMensagem> = {},
+  tipoTarefa: TipoTarefa = TipoTarefa.DIAGNOSTICO,
+): EnvelopeMensagem {
+  const ordemServicoId =
+    (patch.ordemServicoId as string | undefined) ?? randomUUID();
+  const rodada = patch.rodada ?? 1;
+  return {
+    eventId: randomUUID(),
+    eventType: COMANDO_CANCELAR_TAREFA,
+    version: 1,
+    occurredAt: '2026-11-15T12:00:00.000Z',
+    source: 'os-service',
+    correlationId: randomUUID(),
+    causationId: randomUUID(),
+    ordemServicoId,
+    rodada,
+    payload: {
+      tipoTarefa,
+      motivo: 'Desistência do cliente',
     },
     ...patch,
   };
