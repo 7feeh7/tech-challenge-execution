@@ -18,9 +18,29 @@ NestJS 11 sobre Fastify, Node 24, DynamoDB (AWS SDK v3 nas etapas de persistênc
 
 Tabelas provisionadas no `terraform/` deste repositório:
 
-- `tech-challenge-producao-execution-tarefas`
-- `tech-challenge-producao-execution-outbox`
+- `tech-challenge-producao-execution-tarefas`: GSI esparso `gsi-fila-tarefas` (`indiceFila`, `indiceFilaOrdem`), só com tarefas `PENDENTE`.
+- `tech-challenge-producao-execution-outbox`: GSI esparso `gsi-publicacao-pendente`; só as pendentes aparecem no índice e o envio remove os atributos dele.
 - `tech-challenge-producao-execution-mensagens-processadas`
+
+## Unit of Work
+
+`DynamoDbUnitOfWork` recusa transação aninhada e mais de 100 escritas. O aninhamento é detectado por fluxo assíncrono (`AsyncLocalStorage`, só como marcador), porque o singleton atende requisições HTTP e o consumidor ao mesmo tempo. O `ContextoTransacao` continua explícito. Conflito condicional vira `ConflitoTransacionalError`, e o caso de uso repete com nova leitura (`executarComRetentativaConflito`).
+
+## Autenticação (D6.3)
+
+`modules/auth`: `JwtAuthGuard` e `RolesGuard` globais (`APP_GUARD`). O JWT é validado só com a chave pública RS256 (`JWT_PUBLIC_KEY`, aceita `\n` literal), sem segredo compartilhado. `JWT_ISSUER` e `JWT_AUDIENCE` são opcionais. Rotas públicas usam `@Public()` (health). `TarefaResponsavelGuard` limita o `MECANICO` à tarefa em que é o responsável; `ADMINISTRADOR` passa.
+
+## Tarefas de diagnóstico
+
+`modules/tarefas`: o processador de `execution.iniciar-diagnostico.v1` cria a tarefa `<osId>#<rodada>#DIAGNOSTICO`, e a API (`/v1/tarefas`, `/inicio`, `/devolucao`, `/conclusao`) conduz o ciclo. O `#` do id vai como `%23` na URL.
+
+A conclusão tem três passos:
+
+1. A transação grava `CONCLUSAO_EM_ANDAMENTO` com o payload.
+2. O OS é chamado por HTTP, fora da transação, com `Idempotency-Key: diagnostico:<tarefaId>`.
+3. Outra transação aplica o resultado: 200 conclui, 4xx volta a `EM_ANDAMENTO` e limpa o payload, e resultado indeterminado mantém o payload para reenvio (HTTP 503).
+
+Variáveis: `OS_SERVICE_BASE_URL`, `OS_SERVICE_TOKEN` (token `execution-os`) e `OS_REQUEST_TIMEOUT_MS`.
 
 ## Mensageria
 

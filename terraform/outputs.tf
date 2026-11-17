@@ -33,6 +33,21 @@ output "dynamodb_outbox_table_name" {
   value       = aws_dynamodb_table.outbox.name
 }
 
+output "dynamodb_outbox_table_arn" {
+  description = "ARN da tabela DynamoDB de outbox"
+  value       = aws_dynamodb_table.outbox.arn
+}
+
+output "dynamodb_outbox_gsi_publicacao_pendente_arn" {
+  description = "ARN do GSI gsi-publicacao-pendente da outbox (Query nas pendentes; complemento E06)"
+  value       = "${aws_dynamodb_table.outbox.arn}/index/gsi-publicacao-pendente"
+}
+
+output "dynamodb_tarefas_gsi_fila_arn" {
+  description = "ARN do GSI gsi-fila-tarefas (complemento E06)"
+  value       = "${aws_dynamodb_table.tarefas.arn}/index/gsi-fila-tarefas"
+}
+
 output "dynamodb_mensagens_processadas_table_name" {
   description = "Nome da tabela DynamoDB de mensagens processadas"
   value       = aws_dynamodb_table.mensagens_processadas.name

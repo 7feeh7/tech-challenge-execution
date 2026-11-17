@@ -109,12 +109,7 @@ describe('PublicadorOutboxService', () => {
       tentativas: 0,
     });
     expect(fila.enviar).not.toHaveBeenCalled();
-    expect(liberar).toHaveBeenCalledWith(
-      'e4',
-      't',
-      expect.any(String),
-      1,
-    );
+    expect(liberar).toHaveBeenCalledWith('e4', 't', expect.any(String), 1);
   });
 
   it('ignora mensagem reivindicada sem token', async () => {

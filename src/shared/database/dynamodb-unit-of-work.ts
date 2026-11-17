@@ -1,8 +1,10 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { TransactWriteItemsCommand } from '@aws-sdk/client-dynamodb';
 import { Injectable } from '@nestjs/common';
 import { DynamoDbClientProvider } from './dynamodb-client.provider';
 import { DynamoDbContextoTransacao } from './dynamodb-contexto-transacao';
 import { DynamoDbTabelasService } from './dynamodb-tabelas.config';
+import { LimiteTransacaoExcedidoError } from './limite-transacao-excedido.error';
 import { TransacaoAninhadaError } from './transacao-aninhada.error';
 import { mapearErroTransacaoDynamodb } from './tratar-erro-dynamodb-transacao';
 import type { ContextoTransacao, UnitOfWork } from './unit-of-work.port';
@@ -11,7 +13,9 @@ const LIMITE_ITENS_TRANSACAO = 100;
 
 @Injectable()
 export class DynamoDbUnitOfWork implements UnitOfWork {
-  private profundidade = 0;
+  // Por fluxo assíncrono, não por instância: requisições HTTP e o consumidor
+  // executam transações concorrentes no mesmo singleton.
+  private readonly emTransacao = new AsyncLocalStorage<true>();
 
   constructor(
     private readonly dynamo: DynamoDbClientProvider,
@@ -21,43 +25,43 @@ export class DynamoDbUnitOfWork implements UnitOfWork {
   async executar<T>(
     trabalho: (contexto: ContextoTransacao) => Promise<T>,
   ): Promise<T> {
-    if (this.profundidade > 0) {
+    if (this.emTransacao.getStore()) {
       throw new TransacaoAninhadaError();
     }
-    this.profundidade += 1;
+    return this.emTransacao.run(true, () => this.executarIsolado(trabalho));
+  }
+
+  private async executarIsolado<T>(
+    trabalho: (contexto: ContextoTransacao) => Promise<T>,
+  ): Promise<T> {
     const contexto = new DynamoDbContextoTransacao(
       this.dynamo.client,
       this.tabelas,
     );
-    try {
-      const resultado = await trabalho(contexto);
-      const itens = [...contexto.obterEscritasPendentes()];
-      if (itens.length === 0) {
-        return resultado;
-      }
-      await this.gravarTransacao(itens);
+    const resultado = await trabalho(contexto);
+    const itens = [...contexto.obterEscritasPendentes()];
+    if (itens.length === 0) {
       return resultado;
-    } finally {
-      this.profundidade -= 1;
     }
+    if (itens.length > LIMITE_ITENS_TRANSACAO) {
+      throw new LimiteTransacaoExcedidoError(
+        itens.length,
+        LIMITE_ITENS_TRANSACAO,
+      );
+    }
+    await this.gravarTransacaoUnica(itens);
+    return resultado;
   }
 
-  private async gravarTransacao(
+  private async gravarTransacaoUnica(
     itens: import('@aws-sdk/client-dynamodb').TransactWriteItem[],
   ): Promise<void> {
-    for (
-      let inicio = 0;
-      inicio < itens.length;
-      inicio += LIMITE_ITENS_TRANSACAO
-    ) {
-      const lote = itens.slice(inicio, inicio + LIMITE_ITENS_TRANSACAO);
-      try {
-        await this.dynamo.client.send(
-          new TransactWriteItemsCommand({ TransactItems: lote }),
-        );
-      } catch (erro) {
-        mapearErroTransacaoDynamodb(erro);
-      }
+    try {
+      await this.dynamo.client.send(
+        new TransactWriteItemsCommand({ TransactItems: itens }),
+      );
+    } catch (erro) {
+      mapearErroTransacaoDynamodb(erro);
     }
   }
 }

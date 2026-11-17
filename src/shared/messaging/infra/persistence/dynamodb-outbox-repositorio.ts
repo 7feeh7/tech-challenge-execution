@@ -1,7 +1,13 @@
-import { ScanCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
+import { QueryCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import { Injectable } from '@nestjs/common';
 import { DynamoDbClientProvider } from '@/shared/database/dynamodb-client.provider';
+import {
+  OUTBOX_ATTR_INDICE_PENDENTE,
+  OUTBOX_ATTR_INDICE_PENDENTE_ORDEM,
+  OUTBOX_GSI_PUBLICACAO_PENDENTE,
+  OUTBOX_VALOR_INDICE_PENDENTE,
+} from '@/shared/database/dynamodb-indices.constants';
 import { DynamoDbTabelasService } from '@/shared/database/dynamodb-tabelas.config';
 
 export interface RegistroOutboxDynamodb {
@@ -13,6 +19,9 @@ export interface RegistroOutboxDynamodb {
   tentativas: number;
 }
 
+const EXPRESSAO_ELEGIVEL =
+  'attribute_not_exists(enviadoEm) AND situacao = :pendente AND (attribute_not_exists(bloqueadoAte) OR bloqueadoAte < :agora) AND (attribute_not_exists(tokenReivindicacao) OR bloqueadoAte < :agora)';
+
 @Injectable()
 export class DynamoDbOutboxRepositorio {
   constructor(
@@ -22,26 +31,39 @@ export class DynamoDbOutboxRepositorio {
 
   async listarCandidatasPendentes(limite: number): Promise<string[]> {
     const agora = new Date().toISOString();
-    const resposta = await this.dynamo.client.send(
-      new ScanCommand({
-        TableName: this.tabelas.outbox,
-        FilterExpression:
-          'situacao = :pendente AND attribute_not_exists(enviadoEm) AND (attribute_not_exists(bloqueadoAte) OR bloqueadoAte < :agora)',
-        ExpressionAttributeValues: marshall({
-          ':pendente': 'PENDENTE',
-          ':agora': agora,
-        }),
-        Limit: Math.min(limite * 5, 100),
-      }),
-    );
+    const elegiveis: string[] = [];
+    let lastKey: Record<string, unknown> | undefined;
 
-    const itens = (resposta.Items ?? []).map((item) => unmarshall(item));
-    return itens
-      .sort((a, b) =>
-        String(a.criadoEm ?? '').localeCompare(String(b.criadoEm ?? '')),
-      )
-      .slice(0, limite)
-      .map((item) => String(item.eventId));
+    while (elegiveis.length < limite) {
+      const resposta = await this.dynamo.client.send(
+        new QueryCommand({
+          TableName: this.tabelas.outbox,
+          IndexName: OUTBOX_GSI_PUBLICACAO_PENDENTE,
+          KeyConditionExpression: `${OUTBOX_ATTR_INDICE_PENDENTE} = :indice`,
+          FilterExpression: EXPRESSAO_ELEGIVEL,
+          ExpressionAttributeValues: marshall({
+            ':indice': OUTBOX_VALOR_INDICE_PENDENTE,
+            ':pendente': 'PENDENTE',
+            ':agora': agora,
+          }),
+          Limit: Math.max(limite * 2, 25),
+          ExclusiveStartKey: lastKey
+            ? marshall(lastKey, { removeUndefinedValues: true })
+            : undefined,
+        }),
+      );
+
+      for (const item of resposta.Items ?? []) {
+        const registro = unmarshall(item);
+        elegiveis.push(String(registro.eventId));
+        if (elegiveis.length >= limite) break;
+      }
+
+      if (!resposta.LastEvaluatedKey) break;
+      lastKey = unmarshall(resposta.LastEvaluatedKey);
+    }
+
+    return elegiveis;
   }
 
   async reivindicar(
@@ -57,8 +79,7 @@ export class DynamoDbOutboxRepositorio {
           Key: marshall({ eventId }),
           UpdateExpression:
             'SET tokenReivindicacao = :token, bloqueadoAte = :bloqueadoAte',
-          ConditionExpression:
-            'situacao = :pendente AND attribute_not_exists(enviadoEm) AND (attribute_not_exists(bloqueadoAte) OR bloqueadoAte < :agora) AND (attribute_not_exists(tokenReivindicacao) OR bloqueadoAte < :agora)',
+          ConditionExpression: EXPRESSAO_ELEGIVEL,
           ExpressionAttributeValues: marshall({
             ':token': token,
             ':bloqueadoAte': bloqueadoAte,
@@ -97,9 +118,13 @@ export class DynamoDbOutboxRepositorio {
           TableName: this.tabelas.outbox,
           Key: marshall({ eventId }),
           UpdateExpression:
-            'SET enviadoEm = :agora, situacao = :enviada, tokenReivindicacao = :nulo, bloqueadoAte = :nulo',
+            'SET enviadoEm = :agora, situacao = :enviada, tokenReivindicacao = :nulo, bloqueadoAte = :nulo REMOVE #indice, #ordem',
           ConditionExpression:
             'tokenReivindicacao = :token AND attribute_not_exists(enviadoEm)',
+          ExpressionAttributeNames: {
+            '#indice': OUTBOX_ATTR_INDICE_PENDENTE,
+            '#ordem': OUTBOX_ATTR_INDICE_PENDENTE_ORDEM,
+          },
           ExpressionAttributeValues: marshall({
             ':agora': agora,
             ':enviada': 'ENVIADA',
@@ -124,33 +149,59 @@ export class DynamoDbOutboxRepositorio {
     bloqueadoAte: string,
     tentativas: number,
   ): Promise<void> {
+    const agora = new Date().toISOString();
     await this.dynamo.client.send(
       new UpdateItemCommand({
         TableName: this.tabelas.outbox,
         Key: marshall({ eventId }),
         UpdateExpression:
-          'SET tentativas = :tentativas, bloqueadoAte = :bloqueadoAte, tokenReivindicacao = :nulo',
+          'SET tentativas = :tentativas, bloqueadoAte = :bloqueadoAte, tokenReivindicacao = :nulo, #indice = :indice, #ordem = if_not_exists(#ordem, :agora)',
         ConditionExpression: 'tokenReivindicacao = :token',
+        ExpressionAttributeNames: {
+          '#indice': OUTBOX_ATTR_INDICE_PENDENTE,
+          '#ordem': OUTBOX_ATTR_INDICE_PENDENTE_ORDEM,
+        },
         ExpressionAttributeValues: marshall({
           ':tentativas': tentativas,
           ':bloqueadoAte': bloqueadoAte,
           ':nulo': null,
           ':token': token,
+          ':indice': OUTBOX_VALOR_INDICE_PENDENTE,
+          ':agora': agora,
         }),
       }),
     );
   }
 
   async contarPendentes(): Promise<number> {
-    const resposta = await this.dynamo.client.send(
-      new ScanCommand({
-        TableName: this.tabelas.outbox,
-        FilterExpression:
-          'situacao = :pendente AND attribute_not_exists(enviadoEm)',
-        ExpressionAttributeValues: marshall({ ':pendente': 'PENDENTE' }),
-        Select: 'COUNT',
-      }),
-    );
-    return resposta.Count ?? 0;
+    const agora = new Date().toISOString();
+    let total = 0;
+    let lastKey: Record<string, unknown> | undefined;
+
+    do {
+      const resposta = await this.dynamo.client.send(
+        new QueryCommand({
+          TableName: this.tabelas.outbox,
+          IndexName: OUTBOX_GSI_PUBLICACAO_PENDENTE,
+          KeyConditionExpression: `${OUTBOX_ATTR_INDICE_PENDENTE} = :indice`,
+          FilterExpression: EXPRESSAO_ELEGIVEL,
+          ExpressionAttributeValues: marshall({
+            ':indice': OUTBOX_VALOR_INDICE_PENDENTE,
+            ':pendente': 'PENDENTE',
+            ':agora': agora,
+          }),
+          Select: 'COUNT',
+          ExclusiveStartKey: lastKey
+            ? marshall(lastKey, { removeUndefinedValues: true })
+            : undefined,
+        }),
+      );
+      total += resposta.Count ?? 0;
+      lastKey = resposta.LastEvaluatedKey
+        ? unmarshall(resposta.LastEvaluatedKey)
+        : undefined;
+    } while (lastKey);
+
+    return total;
   }
 }

@@ -3,8 +3,10 @@ import { GetItemCommand } from '@aws-sdk/client-dynamodb';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import { ConfigModule } from '@nestjs/config';
 import { Test, type TestingModule } from '@nestjs/testing';
+import { ConflitoTransacionalError } from '@/shared/database/conflito-transacional.error';
 import { DynamoDbModule } from '@/shared/database/dynamodb.module';
 import {
+  type ContextoTransacao,
   UNIT_OF_WORK,
   type UnitOfWork,
 } from '@/shared/database/unit-of-work.port';
@@ -219,22 +221,79 @@ describe('Mensageria e DynamoDB (integração)', () => {
     ).rejects.toBeInstanceOf(ConteudoMensagemDivergenteError);
   });
 
-  it('rollback quando segunda escrita condicional falha na mesma transação', async () => {
-    const eventId = randomUUID();
-    await expect(
-      unitOfWork.executar(async (contexto) => {
-        await mensagensProcessadas.registrar(contexto, eventId, 'hash-a');
-        await mensagensProcessadas.registrar(contexto, eventId, 'hash-b');
-      }),
-    ).rejects.toBeDefined();
+  describe('rollback depois de falha condicional real em transação de três itens', () => {
+    type ItemFalho = 'efeito' | 'mensagem processada' | 'outbox';
 
-    const msg = await client.send(
-      new GetItemCommand({
-        TableName: tabelas.mensagensProcessadas,
-        Key: marshall({ eventId }),
-      }),
+    async function existe(tabela: string, chave: Record<string, string>) {
+      const resposta = await client.send(
+        new GetItemCommand({
+          TableName: tabela,
+          Key: marshall(chave),
+          ConsistentRead: true,
+        }),
+      );
+      return resposta.Item ? unmarshall(resposta.Item) : undefined;
+    }
+
+    it.each<ItemFalho>(['efeito', 'mensagem processada', 'outbox'])(
+      'a falha condicional no item de %s desfaz os outros dois',
+      async (itemFalho) => {
+        const marcador = modulo.get<MarcadorEfeitoGateway>(
+          MARCADOR_EFEITO_GATEWAY,
+        );
+        const eventId = randomUUID();
+        const chaveEfeito = `rollback-${randomUUID()}#1#DIAGNOSTICO`;
+        const outboxId = `out-rollback-${randomUUID()}`;
+        const registrarOutbox = (contexto: ContextoTransacao) =>
+          outbox.registrar(contexto, {
+            eventId: outboxId,
+            eventType: 'execution.diagnostico-iniciado.v1',
+            envelope: criarEnvelope(eventId),
+            correlationId: randomUUID(),
+            causationId: null,
+            destino: DESTINO_FILA_OS,
+          });
+
+        // Grava antes apenas o item que vai falhar, para a recusa ser condicional de verdade.
+        await unitOfWork.executar(async (contexto) => {
+          if (itemFalho === 'efeito') {
+            await marcador.gravarMarcador(contexto, chaveEfeito, 'original');
+          } else if (itemFalho === 'mensagem processada') {
+            await mensagensProcessadas.registrar(
+              contexto,
+              eventId,
+              'hash-original',
+            );
+          } else {
+            await registrarOutbox(contexto);
+          }
+        });
+
+        await expect(
+          unitOfWork.executar(async (contexto) => {
+            await marcador.gravarMarcador(contexto, chaveEfeito, 'novo');
+            await mensagensProcessadas.registrar(
+              contexto,
+              eventId,
+              'hash-novo',
+            );
+            await registrarOutbox(contexto);
+          }),
+        ).rejects.toBeInstanceOf(ConflitoTransacionalError);
+
+        const efeito = await existe(tabelas.tarefas, { pk: chaveEfeito });
+        const mensagem = await existe(tabelas.mensagensProcessadas, {
+          eventId,
+        });
+        const saida = await existe(tabelas.outbox, { eventId: outboxId });
+
+        expect(Boolean(efeito)).toBe(itemFalho === 'efeito');
+        expect(Boolean(mensagem)).toBe(itemFalho === 'mensagem processada');
+        expect(Boolean(saida)).toBe(itemFalho === 'outbox');
+        if (efeito) expect(efeito.eventIdOrigem).toBe('original');
+        if (mensagem) expect(mensagem.hashConteudo).toBe('hash-original');
+      },
     );
-    expect(msg.Item).toBeUndefined();
   });
 
   it('reivindicação concorrente da outbox: uma publica, outra faz fencing', async () => {

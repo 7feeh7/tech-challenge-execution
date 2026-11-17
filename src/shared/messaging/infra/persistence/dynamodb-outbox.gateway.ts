@@ -1,5 +1,10 @@
 import { marshall } from '@aws-sdk/util-dynamodb';
 import { Injectable } from '@nestjs/common';
+import {
+  OUTBOX_ATTR_INDICE_PENDENTE,
+  OUTBOX_ATTR_INDICE_PENDENTE_ORDEM,
+  OUTBOX_VALOR_INDICE_PENDENTE,
+} from '@/shared/database/dynamodb-indices.constants';
 import { obterContextoDynamodb } from '@/shared/database/obter-contexto-dynamodb';
 import type { ContextoTransacao } from '@/shared/database/unit-of-work.port';
 import type {
@@ -29,6 +34,8 @@ export class DynamoDbOutboxGateway implements OutboxGateway {
             situacao: 'PENDENTE',
             criadoEm: agora,
             tentativas: 0,
+            [OUTBOX_ATTR_INDICE_PENDENTE]: OUTBOX_VALOR_INDICE_PENDENTE,
+            [OUTBOX_ATTR_INDICE_PENDENTE_ORDEM]: agora,
           },
           { removeUndefinedValues: true },
         ),

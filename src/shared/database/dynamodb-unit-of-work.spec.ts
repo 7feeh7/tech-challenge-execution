@@ -2,6 +2,7 @@ import { ConfigService } from '@nestjs/config';
 import { DynamoDbClientProvider } from './dynamodb-client.provider';
 import { DynamoDbTabelasService } from './dynamodb-tabelas.config';
 import { DynamoDbUnitOfWork } from './dynamodb-unit-of-work';
+import { LimiteTransacaoExcedidoError } from './limite-transacao-excedido.error';
 import { obterContextoDynamodb } from './obter-contexto-dynamodb';
 import { TransacaoAninhadaError } from './transacao-aninhada.error';
 
@@ -22,6 +23,26 @@ describe('DynamoDbUnitOfWork', () => {
         await uow.executar(async () => undefined);
       }),
     ).rejects.toBeInstanceOf(TransacaoAninhadaError);
+  });
+
+  it('aceita transações concorrentes de fluxos independentes no mesmo singleton', async () => {
+    const provider = {
+      client: { send: jest.fn() },
+    } as unknown as DynamoDbClientProvider;
+    const uow = new DynamoDbUnitOfWork(
+      provider,
+      new DynamoDbTabelasService(config),
+    );
+    const pausa = () => new Promise((resolve) => setTimeout(resolve, 10));
+
+    await expect(
+      Promise.all([
+        uow.executar(async () => pausa()),
+        uow.executar(async () => pausa()),
+      ]),
+    ).resolves.toHaveLength(2);
+
+    await expect(uow.executar(async () => undefined)).resolves.toBeUndefined();
   });
 
   it('não envia transação quando não há escritas', async () => {
@@ -49,19 +70,21 @@ describe('DynamoDbUnitOfWork', () => {
     expect(send).toHaveBeenCalled();
   });
 
-  it('fragmenta transação acima de 100 itens', async () => {
+  it('rejeita transação acima de 100 itens sem gravar', async () => {
     const send = jest.fn().mockResolvedValue({});
     const provider = { client: { send } } as unknown as DynamoDbClientProvider;
     const tabelas = new DynamoDbTabelasService(config);
     const uow = new DynamoDbUnitOfWork(provider, tabelas);
-    await uow.executar(async (contexto) => {
-      const ctx = obterContextoDynamodb(contexto);
-      for (let i = 0; i < 101; i += 1) {
-        ctx.adicionarEscrita({
-          Put: { TableName: 'tabela', Item: { pk: { S: String(i) } } },
-        });
-      }
-    });
-    expect(send).toHaveBeenCalledTimes(2);
+    await expect(
+      uow.executar(async (contexto) => {
+        const ctx = obterContextoDynamodb(contexto);
+        for (let i = 0; i < 101; i += 1) {
+          ctx.adicionarEscrita({
+            Put: { TableName: 'tabela', Item: { pk: { S: String(i) } } },
+          });
+        }
+      }),
+    ).rejects.toBeInstanceOf(LimiteTransacaoExcedidoError);
+    expect(send).not.toHaveBeenCalled();
   });
 });
