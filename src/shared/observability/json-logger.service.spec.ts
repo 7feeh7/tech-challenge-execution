@@ -47,4 +47,25 @@ describe('JsonLoggerService', () => {
     debugSpy.mockRestore();
     errorSpy.mockRestore();
   });
+
+  it('emite log estruturado com meta via logWithMeta', () => {
+    logger.logWithMeta('info', 'mensagem.consumo.processada', {
+      eventId: 'e1',
+    });
+    const linha = consoleSpy.mock.calls[0][0] as string;
+    const entry = JSON.parse(linha) as { message: string; eventId?: string };
+    expect(entry.message).toBe('mensagem.consumo.processada');
+    expect(entry.eventId).toBe('e1');
+  });
+
+  it('emite logWithMeta em warn e error', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation();
+    logger.logWithMeta('warn', 'alerta', {});
+    logger.logWithMeta('error', 'falha', {});
+    expect(warnSpy).toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
 });
