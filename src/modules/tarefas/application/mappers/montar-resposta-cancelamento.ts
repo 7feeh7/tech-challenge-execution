@@ -35,9 +35,11 @@ export function montarPayloadRespostaCancelamento(
     payload.encerradaEm = horarioEncerramento(tarefa)?.toISOString();
 
     if (tarefa.situacao === SituacaoTarefa.CANCELADA) {
-      payload.pecasUtilizadas = [];
-      payload.servicosRealizados = [];
-      payload.divergencias = [];
+      if (tipoTarefa === TipoTarefa.REPARO) {
+        payload.pecasUtilizadas = [];
+        payload.servicosRealizados = [];
+        payload.divergencias = [];
+      }
       return payload;
     }
 
