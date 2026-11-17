@@ -13,6 +13,7 @@ import {
   TAREFA_GATEWAY,
 } from './application/ports/tokens';
 import { BuscarTarefaUseCase } from './application/use-cases/buscar-tarefa.use-case';
+import { CancelarTarefaUseCase } from './application/use-cases/cancelar-tarefa.use-case';
 import { ConcluirTarefaDiagnosticoUseCase } from './application/use-cases/concluir-tarefa-diagnostico.use-case';
 import { ConcluirTarefaReparoUseCase } from './application/use-cases/concluir-tarefa-reparo.use-case';
 import { CriarTarefaDiagnosticoUseCase } from './application/use-cases/criar-tarefa-diagnostico.use-case';
@@ -21,9 +22,11 @@ import { DevolverTarefaDiagnosticoUseCase } from './application/use-cases/devolv
 import { FalharTarefaReparoUseCase } from './application/use-cases/falhar-tarefa-reparo.use-case';
 import { IniciarTarefaDiagnosticoUseCase } from './application/use-cases/iniciar-tarefa-diagnostico.use-case';
 import { IniciarTarefaReparoUseCase } from './application/use-cases/iniciar-tarefa-reparo.use-case';
+import { InterromperTarefaReparoUseCase } from './application/use-cases/interromper-tarefa-reparo.use-case';
 import { ListarTarefasUseCase } from './application/use-cases/listar-tarefas.use-case';
 import { TarefasController } from './infra/http/controllers/tarefas.controller';
 import { FetchConclusaoDiagnosticoOsGateway } from './infra/http/fetch-conclusao-diagnostico-os.gateway';
+import { ProcessadorCancelarTarefa } from './infra/messaging/processador-cancelar-tarefa';
 import { ProcessadorIniciarDiagnostico } from './infra/messaging/processador-iniciar-diagnostico';
 import { ProcessadorIniciarReparo } from './infra/messaging/processador-iniciar-reparo';
 import { DynamoDbTarefaGateway } from './infra/persistence/dynamodb-tarefa.gateway';
@@ -111,6 +114,21 @@ import { DynamoDbTarefaGateway } from './infra/persistence/dynamodb-tarefa.gatew
       inject: [UNIT_OF_WORK, TAREFA_GATEWAY, OUTBOX_GATEWAY],
     },
     {
+      provide: InterromperTarefaReparoUseCase,
+      useFactory: (
+        unitOfWork: UnitOfWork,
+        tarefas: TarefaGateway,
+        outbox: OutboxGateway,
+      ) => new InterromperTarefaReparoUseCase(unitOfWork, tarefas, outbox),
+      inject: [UNIT_OF_WORK, TAREFA_GATEWAY, OUTBOX_GATEWAY],
+    },
+    {
+      provide: CancelarTarefaUseCase,
+      useFactory: (tarefas: TarefaGateway, outbox: OutboxGateway) =>
+        new CancelarTarefaUseCase(tarefas, outbox),
+      inject: [TAREFA_GATEWAY, OUTBOX_GATEWAY],
+    },
+    {
       provide: ListarTarefasUseCase,
       useFactory: (tarefas: TarefaGateway) => new ListarTarefasUseCase(tarefas),
       inject: [TAREFA_GATEWAY],
@@ -122,7 +140,12 @@ import { DynamoDbTarefaGateway } from './infra/persistence/dynamodb-tarefa.gatew
     },
     ProcessadorIniciarDiagnostico,
     ProcessadorIniciarReparo,
+    ProcessadorCancelarTarefa,
   ],
-  exports: [ProcessadorIniciarDiagnostico, ProcessadorIniciarReparo],
+  exports: [
+    ProcessadorIniciarDiagnostico,
+    ProcessadorIniciarReparo,
+    ProcessadorCancelarTarefa,
+  ],
 })
 export class TarefasModule {}

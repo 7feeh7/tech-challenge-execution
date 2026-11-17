@@ -18,6 +18,14 @@ export interface TarefaGateway {
   buscarPorId(contexto: ContextoTransacao, id: string): Promise<Tarefa | null>;
   /** Também enxerga o marcador de bloqueio de cancelamento (D4.4). */
   existeRegistro(contexto: ContextoTransacao, id: string): Promise<boolean>;
+  gravarMarcadorBloqueio(
+    contexto: ContextoTransacao,
+    id: string,
+    cancelamentoEventId: string,
+    ordemServicoId: string,
+    rodada: number,
+    tipoTarefa: string,
+  ): Promise<void>;
   criar(contexto: ContextoTransacao, tarefa: Tarefa): Promise<void>;
   /** Escrita condicional na versão lida; conflito vira nova tentativa. */
   salvar(contexto: ContextoTransacao, tarefa: Tarefa): Promise<void>;

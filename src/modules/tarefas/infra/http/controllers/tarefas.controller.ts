@@ -30,6 +30,7 @@ import { DevolverTarefaDiagnosticoUseCase } from '../../../application/use-cases
 import { FalharTarefaReparoUseCase } from '../../../application/use-cases/falhar-tarefa-reparo.use-case';
 import { IniciarTarefaDiagnosticoUseCase } from '../../../application/use-cases/iniciar-tarefa-diagnostico.use-case';
 import { IniciarTarefaReparoUseCase } from '../../../application/use-cases/iniciar-tarefa-reparo.use-case';
+import { InterromperTarefaReparoUseCase } from '../../../application/use-cases/interromper-tarefa-reparo.use-case';
 import { ListarTarefasUseCase } from '../../../application/use-cases/listar-tarefas.use-case';
 import { extrairTipoTarefaId } from '../../../domain/tarefa-id';
 import { TipoTarefa } from '../../../domain/tipo-tarefa.enum';
@@ -61,6 +62,7 @@ export class TarefasController {
     private readonly concluirDiagnostico: ConcluirTarefaDiagnosticoUseCase,
     private readonly concluirReparo: ConcluirTarefaReparoUseCase,
     private readonly falharReparo: FalharTarefaReparoUseCase,
+    private readonly interromperReparo: InterromperTarefaReparoUseCase,
   ) {}
 
   @Get()
@@ -190,6 +192,33 @@ export class TarefasController {
     const dto = await this.validarCorpo(FalharReparoDto, body);
     return await this.falharReparo.execute(id, {
       motivo: dto.motivo,
+      servicosRealizados: dto.servicosRealizados,
+      pecasUtilizadas: dto.pecasUtilizadas,
+      justificativaDivergencia: dto.justificativaDivergencia,
+      responsavelOperacaoId: usuario.sub,
+    });
+  }
+
+  @Post(':id/interrupcao')
+  @HttpCode(200)
+  @UseGuards(TarefaResponsavelGuard)
+  @ApiParam(PARAMETRO_ID)
+  @ApiOperation({
+    summary:
+      'Confirma a interrupção do reparo com consumo efetivo e publica ReparoInterrompido',
+  })
+  @ApiResponse({ status: 200, description: 'Interrupção registrada.' })
+  @ApiResponse({ status: 403, description: 'Tarefa de outro mecânico.' })
+  @ApiResponse({ status: 404, description: 'Tarefa não encontrada.' })
+  @ApiResponse({ status: 409, description: 'Situação inválida.' })
+  @ApiResponse({ status: 422, description: 'Conteúdo recusado.' })
+  async interromper(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @UsuarioAutenticado() usuario: JwtPayload,
+  ) {
+    const dto = await this.validarCorpo(ConcluirReparoDto, body);
+    return await this.interromperReparo.execute(id, {
       servicosRealizados: dto.servicosRealizados,
       pecasUtilizadas: dto.pecasUtilizadas,
       justificativaDivergencia: dto.justificativaDivergencia,

@@ -1,4 +1,5 @@
 import { forwardRef, Module } from '@nestjs/common';
+import { ProcessadorCancelarTarefa } from '@/modules/tarefas/infra/messaging/processador-cancelar-tarefa';
 import { ProcessadorIniciarDiagnostico } from '@/modules/tarefas/infra/messaging/processador-iniciar-diagnostico';
 import { ProcessadorIniciarReparo } from '@/modules/tarefas/infra/messaging/processador-iniciar-reparo';
 import { TarefasModule } from '@/modules/tarefas/tarefas.module';
@@ -50,8 +51,13 @@ import { FilaSqsGateway } from './infra/sqs/fila-sqs.gateway';
       useFactory: (
         iniciarDiagnostico: ProcessadorIniciarDiagnostico,
         iniciarReparo: ProcessadorIniciarReparo,
-      ) => [iniciarDiagnostico, iniciarReparo],
-      inject: [ProcessadorIniciarDiagnostico, ProcessadorIniciarReparo],
+        cancelarTarefa: ProcessadorCancelarTarefa,
+      ) => [iniciarDiagnostico, iniciarReparo, cancelarTarefa],
+      inject: [
+        ProcessadorIniciarDiagnostico,
+        ProcessadorIniciarReparo,
+        ProcessadorCancelarTarefa,
+      ],
     },
     RoteadorProcessadoresMensagemService,
     ProcessarMensagemEntradaService,

@@ -167,6 +167,10 @@ describe('Tarefa', () => {
       responsavelOperacaoId: original.responsavelOperacaoId,
       motivoFalha: original.motivoFalha,
       falhouEm: original.falhouEm,
+      interrompidaEm: original.interrompidaEm,
+      canceladaEm: original.canceladaEm,
+      motivoCancelamento: original.motivoCancelamento,
+      fatoTerminalEventId: original.fatoTerminalEventId,
       criadoEm: original.criadoEm,
       iniciadoEm: original.iniciadoEm,
       devolvidaEm: original.devolvidaEm,
@@ -178,5 +182,47 @@ describe('Tarefa', () => {
     expect(restaurada.situacao).toBe(SituacaoTarefa.EM_ANDAMENTO);
     expect(restaurada.versao).toBe(3);
     expect(restaurada.atualizadoEm).toEqual(depois);
+  });
+
+  it('cancela diagnóstico pendente e em andamento', () => {
+    const pendente = criarTarefa();
+    pendente.cancelarSemInicio('desistência', depois);
+    expect(pendente.situacao).toBe(SituacaoTarefa.CANCELADA);
+    expect(pendente.canceladaEm).toEqual(depois);
+
+    const andamento = criarTarefa();
+    andamento.iniciar('mec-1', agora);
+    andamento.cancelarEmAndamento('desistência', depois);
+    expect(andamento.situacao).toBe(SituacaoTarefa.CANCELADA);
+    expect(andamento.conclusaoPendente).toBeNull();
+  });
+
+  it('solicita interrupção de reparo e recusa conclusão depois', () => {
+    const reparo = Tarefa.criar({
+      tipo: TipoTarefa.REPARO,
+      ordemServicoId: 'os-1',
+      rodada: 1,
+      correlationId: 'corr-1',
+      veiculo: { placa: 'X', modelo: 'Y' },
+      descricaoProblema: 'p',
+      sugestoes: [],
+      itensOficiais: [],
+      criadoEm: agora,
+    });
+    reparo.iniciar('mec-1', agora);
+    reparo.solicitarInterrupcao(depois);
+    expect(reparo.situacao).toBe(SituacaoTarefa.INTERRUPCAO_SOLICITADA);
+    expect(() =>
+      reparo.concluirReparo(
+        {
+          servicosRealizados: [],
+          pecasUtilizadas: [],
+          divergencias: [],
+          responsavelOperacaoId: 'mec-1',
+          motivoFalha: null,
+        },
+        depois,
+      ),
+    ).toThrow();
   });
 });

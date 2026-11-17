@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { executarComRetentativaConflito } from '@/shared/database/executar-com-retentativa-conflito';
 import type { UnitOfWork } from '@/shared/database/unit-of-work.port';
 import type { OutboxGateway } from '@/shared/messaging/application/ports/outbox.gateway';
@@ -67,6 +68,8 @@ export class FalharTarefaReparoUseCase {
           input.justificativaDivergencia,
         );
         const agora = this.agora();
+        const fatoTerminalEventId = randomUUID();
+        tarefa.registrarFatoTerminalEventId(fatoTerminalEventId);
         tarefa.falharReparo(
           {
             ...validada,
@@ -92,6 +95,7 @@ export class FalharTarefaReparoUseCase {
             divergencias,
           },
           agora,
+          fatoTerminalEventId,
         );
         return TarefaOutputMapper.toOutput(tarefa);
       }),

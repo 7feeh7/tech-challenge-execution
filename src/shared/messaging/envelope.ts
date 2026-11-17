@@ -8,6 +8,9 @@ export const EVENTO_TAREFA_DEVOLVIDA_A_FILA =
 export const EVENTO_REPARO_INICIADO = 'execution.reparo-iniciado.v1';
 export const EVENTO_REPARO_CONCLUIDO = 'execution.reparo-concluido.v1';
 export const EVENTO_REPARO_FALHOU = 'execution.reparo-falhou.v1';
+export const EVENTO_REPARO_INTERROMPIDO = 'execution.reparo-interrompido.v1';
+export const EVENTO_RESPOSTA_CANCELAMENTO =
+  'execution.resposta-cancelamento.v1';
 
 export const DESTINO_FILA_OS = 'os-in';
 

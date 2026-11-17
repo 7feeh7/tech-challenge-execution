@@ -4,8 +4,10 @@ import type { OutboxGateway } from '@/shared/messaging/application/ports/outbox.
 import { EVENTO_REPARO_INICIADO } from '@/shared/messaging/envelope';
 import {
   TarefaNaoEncontradaError,
+  TarefaSituacaoInvalidaError,
   TarefaTipoInvalidoError,
 } from '../../domain/errors/tarefa.errors';
+import { SituacaoTarefa } from '../../domain/situacao-tarefa.enum';
 import { TipoTarefa } from '../../domain/tipo-tarefa.enum';
 import {
   type TarefaOutput,
@@ -34,6 +36,16 @@ export class IniciarTarefaReparoUseCase {
         }
         if (tarefa.estaEmAndamentoPor(usuarioId)) {
           return TarefaOutputMapper.toOutput(tarefa);
+        }
+        if (tarefa.situacao === SituacaoTarefa.CANCELADA) {
+          throw new TarefaSituacaoInvalidaError('iniciar', tarefa.situacao, [
+            SituacaoTarefa.PENDENTE,
+          ]);
+        }
+        if (tarefa.situacao === SituacaoTarefa.INTERRUPCAO_SOLICITADA) {
+          throw new TarefaSituacaoInvalidaError('iniciar', tarefa.situacao, [
+            SituacaoTarefa.PENDENTE,
+          ]);
         }
 
         const agora = this.agora();

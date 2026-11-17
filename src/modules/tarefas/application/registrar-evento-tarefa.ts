@@ -12,8 +12,9 @@ export async function registrarEventoTarefa(
   eventType: string,
   payload: Record<string, unknown>,
   ocorridoEm: Date,
-): Promise<void> {
-  const eventId = randomUUID();
+  eventId: string = randomUUID(),
+  causationId: string | null = null,
+): Promise<string> {
   await outbox.registrar(contexto, {
     eventId,
     eventType,
@@ -24,13 +25,14 @@ export async function registrarEventoTarefa(
       occurredAt: ocorridoEm.toISOString(),
       source: 'execution',
       correlationId: tarefa.correlationId,
-      causationId: null,
+      causationId,
       ordemServicoId: tarefa.ordemServicoId,
       rodada: tarefa.rodada,
       payload,
     },
     correlationId: tarefa.correlationId,
-    causationId: null,
+    causationId,
     destino: DESTINO_FILA_OS,
   });
+  return eventId;
 }

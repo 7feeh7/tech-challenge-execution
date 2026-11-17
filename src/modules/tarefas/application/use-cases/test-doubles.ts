@@ -66,6 +66,7 @@ export const criarTarefaEmAndamentoFake = (
 export const criarTarefaGatewayMock = (): jest.Mocked<TarefaGateway> => ({
   buscarPorId: jest.fn(),
   existeRegistro: jest.fn(),
+  gravarMarcadorBloqueio: jest.fn(),
   criar: jest.fn(),
   salvar: jest.fn(),
   consultarPorId: jest.fn(),
