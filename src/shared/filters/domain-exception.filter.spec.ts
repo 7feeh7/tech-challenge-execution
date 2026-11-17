@@ -5,6 +5,8 @@ import {
   DomainError,
   DomainNotFoundError,
   DomainUnauthorizedError,
+  DomainUnavailableError,
+  DomainUnprocessableError,
   DomainValidationError,
 } from '../exceptions/domain.error';
 import { DomainExceptionFilter } from './domain-exception.filter';
@@ -30,6 +32,18 @@ class ErroConflitoTeste extends DomainConflictError {
 class ErroNaoAutorizadoTeste extends DomainUnauthorizedError {
   constructor() {
     super('não autorizado');
+  }
+}
+
+class ErroNaoProcessavelTeste extends DomainUnprocessableError {
+  constructor() {
+    super('não processável');
+  }
+}
+
+class ErroIndisponivelTeste extends DomainUnavailableError {
+  constructor() {
+    super('indisponível');
   }
 }
 
@@ -72,6 +86,16 @@ describe('DomainExceptionFilter', () => {
   it('traduz erro de credenciais para 401', () => {
     filter.catch(new ErroNaoAutorizadoTeste(), host);
     expect(statusRespondido()).toBe(401);
+  });
+
+  it('traduz erro de regra recusada por outro serviço para 422', () => {
+    filter.catch(new ErroNaoProcessavelTeste(), host);
+    expect(statusRespondido()).toBe(422);
+  });
+
+  it('traduz erro de dependência sem resposta definitiva para 503', () => {
+    filter.catch(new ErroIndisponivelTeste(), host);
+    expect(statusRespondido()).toBe(503);
   });
 
   it('traduz erro genérico de domínio para 500', () => {

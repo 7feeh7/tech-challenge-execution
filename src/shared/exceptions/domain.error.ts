@@ -20,3 +20,9 @@ export abstract class DomainConflictError extends DomainError {}
 
 /** Credenciais ausentes ou inválidas. */
 export abstract class DomainUnauthorizedError extends DomainError {}
+
+/** Requisição bem formada, mas recusada por regra de negócio de outro serviço. */
+export abstract class DomainUnprocessableError extends DomainError {}
+
+/** Dependência externa sem resposta definitiva; a operação pode ser repetida. */
+export abstract class DomainUnavailableError extends DomainError {}

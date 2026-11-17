@@ -1,4 +1,6 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
+import { ProcessadorIniciarDiagnostico } from '@/modules/tarefas/infra/messaging/processador-iniciar-diagnostico';
+import { TarefasModule } from '@/modules/tarefas/tarefas.module';
 import { DynamoDbModule } from '@/shared/database/dynamodb.module';
 import { MessagingMetricsService } from '@/shared/observability/messaging-metrics.service';
 import { ObservabilityModule } from '@/shared/observability/observability.module';
@@ -20,7 +22,11 @@ import { DynamoDbOutboxRepositorio } from './infra/persistence/dynamodb-outbox-r
 import { FilaSqsGateway } from './infra/sqs/fila-sqs.gateway';
 
 @Module({
-  imports: [DynamoDbModule, ObservabilityModule],
+  imports: [
+    DynamoDbModule,
+    ObservabilityModule,
+    forwardRef(() => TarefasModule),
+  ],
   providers: [
     FilaSqsGateway,
     { provide: FILA_MENSAGENS, useExisting: FilaSqsGateway },
@@ -38,7 +44,13 @@ import { FilaSqsGateway } from './infra/sqs/fila-sqs.gateway';
     },
     DynamoDbOutboxRepositorio,
     MessagingMetricsService,
-    { provide: PROCESSADORES_MENSAGEM, useValue: [] },
+    {
+      provide: PROCESSADORES_MENSAGEM,
+      useFactory: (iniciarDiagnostico: ProcessadorIniciarDiagnostico) => [
+        iniciarDiagnostico,
+      ],
+      inject: [ProcessadorIniciarDiagnostico],
+    },
     RoteadorProcessadoresMensagemService,
     ProcessarMensagemEntradaService,
     PublicadorOutboxService,

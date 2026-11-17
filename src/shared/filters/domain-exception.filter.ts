@@ -7,14 +7,18 @@ import {
   type HttpException,
   InternalServerErrorException,
   NotFoundException,
+  ServiceUnavailableException,
   UnauthorizedException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
-import type { HttpAdapterHost } from '@nestjs/core';
+import { HttpAdapterHost } from '@nestjs/core';
 import {
   DomainConflictError,
   DomainError,
   DomainNotFoundError,
   DomainUnauthorizedError,
+  DomainUnavailableError,
+  DomainUnprocessableError,
   DomainValidationError,
 } from '../exceptions/domain.error';
 
@@ -49,6 +53,12 @@ export class DomainExceptionFilter implements ExceptionFilter<DomainError> {
     }
     if (error instanceof DomainUnauthorizedError) {
       return new UnauthorizedException(error.message);
+    }
+    if (error instanceof DomainUnprocessableError) {
+      return new UnprocessableEntityException(error.message);
+    }
+    if (error instanceof DomainUnavailableError) {
+      return new ServiceUnavailableException(error.message);
     }
     return new InternalServerErrorException(error.message);
   }
