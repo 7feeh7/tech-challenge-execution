@@ -1,7 +1,10 @@
 import type { BuscarTarefaUseCase } from '../../../application/use-cases/buscar-tarefa.use-case';
 import type { ConcluirTarefaDiagnosticoUseCase } from '../../../application/use-cases/concluir-tarefa-diagnostico.use-case';
+import type { ConcluirTarefaReparoUseCase } from '../../../application/use-cases/concluir-tarefa-reparo.use-case';
 import type { DevolverTarefaDiagnosticoUseCase } from '../../../application/use-cases/devolver-tarefa-diagnostico.use-case';
+import type { FalharTarefaReparoUseCase } from '../../../application/use-cases/falhar-tarefa-reparo.use-case';
 import type { IniciarTarefaDiagnosticoUseCase } from '../../../application/use-cases/iniciar-tarefa-diagnostico.use-case';
+import type { IniciarTarefaReparoUseCase } from '../../../application/use-cases/iniciar-tarefa-reparo.use-case';
 import type { ListarTarefasUseCase } from '../../../application/use-cases/listar-tarefas.use-case';
 import { TipoTarefa } from '../../../domain/tipo-tarefa.enum';
 import { TarefasController } from './tarefas.controller';
@@ -9,15 +12,21 @@ import { TarefasController } from './tarefas.controller';
 describe('TarefasController', () => {
   const listar = { execute: jest.fn() };
   const buscar = { execute: jest.fn() };
-  const iniciar = { execute: jest.fn() };
+  const iniciarDiagnostico = { execute: jest.fn() };
+  const iniciarReparo = { execute: jest.fn() };
   const devolver = { execute: jest.fn() };
-  const concluir = { execute: jest.fn() };
+  const concluirDiagnostico = { execute: jest.fn() };
+  const concluirReparo = { execute: jest.fn() };
+  const falharReparo = { execute: jest.fn() };
   const controller = new TarefasController(
     listar as unknown as ListarTarefasUseCase,
     buscar as unknown as BuscarTarefaUseCase,
-    iniciar as unknown as IniciarTarefaDiagnosticoUseCase,
+    iniciarDiagnostico as unknown as IniciarTarefaDiagnosticoUseCase,
+    iniciarReparo as unknown as IniciarTarefaReparoUseCase,
     devolver as unknown as DevolverTarefaDiagnosticoUseCase,
-    concluir as unknown as ConcluirTarefaDiagnosticoUseCase,
+    concluirDiagnostico as unknown as ConcluirTarefaDiagnosticoUseCase,
+    concluirReparo as unknown as ConcluirTarefaReparoUseCase,
+    falharReparo as unknown as FalharTarefaReparoUseCase,
   );
 
   beforeEach(() => jest.clearAllMocks());
@@ -47,14 +56,17 @@ describe('TarefasController', () => {
   });
 
   it('inicia a tarefa em nome do usuário autenticado', async () => {
-    iniciar.execute.mockResolvedValue({ situacao: 'EM_ANDAMENTO' });
+    iniciarDiagnostico.execute.mockResolvedValue({ situacao: 'EM_ANDAMENTO' });
 
     await controller.iniciar('os#1#DIAGNOSTICO', {
       sub: 'mec-1',
       perfil: 'MECANICO',
     });
 
-    expect(iniciar.execute).toHaveBeenCalledWith('os#1#DIAGNOSTICO', 'mec-1');
+    expect(iniciarDiagnostico.execute).toHaveBeenCalledWith(
+      'os#1#DIAGNOSTICO',
+      'mec-1',
+    );
   });
 
   it('devolve a tarefa à fila', async () => {
@@ -66,14 +78,26 @@ describe('TarefasController', () => {
   });
 
   it('conclui o diagnóstico com laudo e itens do corpo', async () => {
-    concluir.execute.mockResolvedValue({});
+    concluirDiagnostico.execute.mockResolvedValue({});
     const itens = [{ tipo: 'PECA' as const, itemId: 'p', quantidade: 1 }];
 
     await controller.concluir('os#1#DIAGNOSTICO', { laudo: 'L', itens });
 
-    expect(concluir.execute).toHaveBeenCalledWith('os#1#DIAGNOSTICO', {
-      laudo: 'L',
-      itens,
+    expect(concluirDiagnostico.execute).toHaveBeenCalledWith(
+      'os#1#DIAGNOSTICO',
+      {
+        laudo: 'L',
+        itens,
+      },
+    );
+  });
+
+  it('inicia reparo pelo sufixo do id', async () => {
+    iniciarReparo.execute.mockResolvedValue({});
+    await controller.iniciar('os#1#REPARO', {
+      sub: 'mec-1',
+      perfil: 'MECANICO',
     });
+    expect(iniciarReparo.execute).toHaveBeenCalledWith('os#1#REPARO', 'mec-1');
   });
 });

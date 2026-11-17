@@ -10,8 +10,10 @@ import {
   ConclusaoRecusadaPeloOsConflitoError,
   ConclusaoRecusadaPeloOsError,
   TarefaNaoEncontradaError,
+  TarefaTipoInvalidoError,
 } from '../../domain/errors/tarefa.errors';
 import { SituacaoTarefa } from '../../domain/situacao-tarefa.enum';
+import { TipoTarefa } from '../../domain/tipo-tarefa.enum';
 import {
   type TarefaOutput,
   TarefaOutputMapper,
@@ -84,6 +86,12 @@ export class ConcluirTarefaDiagnosticoUseCase {
         const tarefa = await this.tarefas.buscarPorId(contexto, tarefaId);
         if (!tarefa) {
           throw new TarefaNaoEncontradaError(tarefaId);
+        }
+        if (tarefa.tipo !== TipoTarefa.DIAGNOSTICO) {
+          throw new TarefaTipoInvalidoError(
+            'concluir diagnóstico',
+            tarefa.tipo,
+          );
         }
 
         // Nova tentativa após resposta indeterminada reenvia o payload gravado

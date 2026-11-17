@@ -24,6 +24,33 @@ export const criarTarefaFake = (rodada = 1): Tarefa =>
     veiculo: { placa: 'ABC1D23', modelo: 'Sedan' },
     descricaoProblema: 'Barulho ao frear',
     sugestoes: [],
+    itensOficiais: [],
+    criadoEm: new Date('2026-11-15T10:00:00.000Z'),
+  });
+
+export const criarTarefaReparoFake = (rodada = 1): Tarefa =>
+  Tarefa.criar({
+    tipo: TipoTarefa.REPARO,
+    ordemServicoId: 'os-1',
+    rodada,
+    correlationId: 'corr-1',
+    veiculo: { placa: '', modelo: '' },
+    descricaoProblema: '',
+    sugestoes: [],
+    itensOficiais: [
+      {
+        tipo: 'SERVICO',
+        itemId: 'svc-1',
+        nome: 'Troca de pastilhas',
+        quantidade: 1,
+      },
+      {
+        tipo: 'PECA',
+        itemId: 'peca-1',
+        nome: 'Pastilha',
+        quantidade: 2,
+      },
+    ],
     criadoEm: new Date('2026-11-15T10:00:00.000Z'),
   });
 

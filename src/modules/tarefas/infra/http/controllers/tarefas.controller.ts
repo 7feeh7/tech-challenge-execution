@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -15,6 +16,8 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { plainToInstance } from 'class-transformer';
+import { validateOrReject } from 'class-validator';
 import { Roles } from '@/modules/auth/decorators/roles.decorator';
 import { UsuarioAutenticado } from '@/modules/auth/decorators/usuario-autenticado.decorator';
 import { TarefaResponsavelGuard } from '@/modules/auth/guards/tarefa-responsavel.guard';
@@ -22,10 +25,19 @@ import type { JwtPayload } from '@/modules/auth/jwt-payload';
 import { PerfilUsuario } from '@/modules/auth/perfil-usuario';
 import { BuscarTarefaUseCase } from '../../../application/use-cases/buscar-tarefa.use-case';
 import { ConcluirTarefaDiagnosticoUseCase } from '../../../application/use-cases/concluir-tarefa-diagnostico.use-case';
+import { ConcluirTarefaReparoUseCase } from '../../../application/use-cases/concluir-tarefa-reparo.use-case';
 import { DevolverTarefaDiagnosticoUseCase } from '../../../application/use-cases/devolver-tarefa-diagnostico.use-case';
+import { FalharTarefaReparoUseCase } from '../../../application/use-cases/falhar-tarefa-reparo.use-case';
 import { IniciarTarefaDiagnosticoUseCase } from '../../../application/use-cases/iniciar-tarefa-diagnostico.use-case';
+import { IniciarTarefaReparoUseCase } from '../../../application/use-cases/iniciar-tarefa-reparo.use-case';
 import { ListarTarefasUseCase } from '../../../application/use-cases/listar-tarefas.use-case';
+import { extrairTipoTarefaId } from '../../../domain/tarefa-id';
+import { TipoTarefa } from '../../../domain/tipo-tarefa.enum';
 import { ConcluirDiagnosticoDto } from '../dtos/concluir-diagnostico.dto';
+import {
+  ConcluirReparoDto,
+  FalharReparoDto,
+} from '../dtos/concluir-reparo.dto';
 import { ListarTarefasQueryDto } from '../dtos/listar-tarefas-query.dto';
 
 const PARAMETRO_ID = {
@@ -43,9 +55,12 @@ export class TarefasController {
   constructor(
     private readonly listarTarefas: ListarTarefasUseCase,
     private readonly buscarTarefa: BuscarTarefaUseCase,
-    private readonly iniciarTarefa: IniciarTarefaDiagnosticoUseCase,
+    private readonly iniciarDiagnostico: IniciarTarefaDiagnosticoUseCase,
+    private readonly iniciarReparo: IniciarTarefaReparoUseCase,
     private readonly devolverTarefa: DevolverTarefaDiagnosticoUseCase,
-    private readonly concluirTarefa: ConcluirTarefaDiagnosticoUseCase,
+    private readonly concluirDiagnostico: ConcluirTarefaDiagnosticoUseCase,
+    private readonly concluirReparo: ConcluirTarefaReparoUseCase,
+    private readonly falharReparo: FalharTarefaReparoUseCase,
   ) {}
 
   @Get()
@@ -76,16 +91,19 @@ export class TarefasController {
   @HttpCode(200)
   @ApiParam(PARAMETRO_ID)
   @ApiOperation({
-    summary: 'Inicia o diagnóstico e publica DiagnosticoIniciado',
+    summary: 'Inicia a tarefa e publica DiagnosticoIniciado ou ReparoIniciado',
   })
-  @ApiResponse({ status: 200, description: 'Diagnóstico iniciado.' })
+  @ApiResponse({ status: 200, description: 'Tarefa iniciada.' })
   @ApiResponse({ status: 404, description: 'Tarefa não encontrada.' })
   @ApiResponse({ status: 409, description: 'Tarefa não está pendente.' })
   async iniciar(
     @Param('id') id: string,
     @UsuarioAutenticado() usuario: JwtPayload,
   ) {
-    return await this.iniciarTarefa.execute(id, usuario.sub);
+    if (extrairTipoTarefaId(id) === TipoTarefa.REPARO) {
+      return await this.iniciarReparo.execute(id, usuario.sub);
+    }
+    return await this.iniciarDiagnostico.execute(id, usuario.sub);
   }
 
   @Post(':id/devolucao')
@@ -111,23 +129,32 @@ export class TarefasController {
   @UseGuards(TarefaResponsavelGuard)
   @ApiParam(PARAMETRO_ID)
   @ApiOperation({
-    summary: 'Conclui o diagnóstico com confirmação síncrona do OS',
+    summary:
+      'Conclui diagnóstico (com confirmação do OS) ou reparo (serviços e peças utilizadas)',
   })
-  @ApiResponse({ status: 200, description: 'Diagnóstico concluído no OS.' })
+  @ApiResponse({ status: 200, description: 'Conclusão registrada.' })
   @ApiResponse({ status: 403, description: 'Tarefa de outro mecânico.' })
   @ApiResponse({ status: 404, description: 'Tarefa não encontrada.' })
   @ApiResponse({
     status: 409,
     description: 'Situação inválida ou conflito informado pelo OS.',
   })
-  @ApiResponse({ status: 422, description: 'Conteúdo recusado pelo OS.' })
+  @ApiResponse({ status: 422, description: 'Conteúdo recusado.' })
   @ApiResponse({
     status: 503,
     description:
-      'OS sem resposta definitiva; a conclusão segue pendente e deve ser repetida.',
+      'OS sem resposta definitiva; a conclusão do diagnóstico segue pendente.',
   })
-  async concluir(@Param('id') id: string, @Body() dto: ConcluirDiagnosticoDto) {
-    return await this.concluirTarefa.execute(id, {
+  async concluir(@Param('id') id: string, @Body() body: unknown) {
+    if (extrairTipoTarefaId(id) === TipoTarefa.REPARO) {
+      const dto = await this.validarCorpo(ConcluirReparoDto, body);
+      return await this.concluirReparo.execute(id, {
+        servicosRealizados: dto.servicosRealizados,
+        pecasUtilizadas: dto.pecasUtilizadas,
+      });
+    }
+    const dto = await this.validarCorpo(ConcluirDiagnosticoDto, body);
+    return await this.concluirDiagnostico.execute(id, {
       laudo: dto.laudo,
       itens: dto.itens.map(({ tipo, itemId, quantidade }) => ({
         tipo,
@@ -135,5 +162,39 @@ export class TarefasController {
         quantidade,
       })),
     });
+  }
+
+  @Post(':id/falha')
+  @HttpCode(200)
+  @UseGuards(TarefaResponsavelGuard)
+  @ApiParam(PARAMETRO_ID)
+  @ApiOperation({
+    summary: 'Registra falha do reparo e publica ReparoFalhou',
+  })
+  @ApiResponse({ status: 200, description: 'Falha registrada.' })
+  @ApiResponse({ status: 403, description: 'Tarefa de outro mecânico.' })
+  @ApiResponse({ status: 404, description: 'Tarefa não encontrada.' })
+  @ApiResponse({ status: 409, description: 'Situação inválida.' })
+  @ApiResponse({ status: 422, description: 'Conteúdo recusado.' })
+  async falhar(@Param('id') id: string, @Body() body: unknown) {
+    const dto = await this.validarCorpo(FalharReparoDto, body);
+    return await this.falharReparo.execute(id, {
+      motivo: dto.motivo,
+      servicosRealizados: dto.servicosRealizados,
+      pecasUtilizadas: dto.pecasUtilizadas,
+    });
+  }
+
+  private async validarCorpo<T extends object>(
+    tipo: new () => T,
+    body: unknown,
+  ): Promise<T> {
+    const dto = plainToInstance(tipo, body);
+    try {
+      await validateOrReject(dto, { forbidUnknownValues: false });
+    } catch (erros) {
+      throw new BadRequestException(erros);
+    }
+    return dto;
   }
 }

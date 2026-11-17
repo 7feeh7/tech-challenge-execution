@@ -2,7 +2,11 @@ import { executarComRetentativaConflito } from '@/shared/database/executar-com-r
 import type { UnitOfWork } from '@/shared/database/unit-of-work.port';
 import type { OutboxGateway } from '@/shared/messaging/application/ports/outbox.gateway';
 import { EVENTO_TAREFA_DEVOLVIDA_A_FILA } from '@/shared/messaging/envelope';
-import { TarefaNaoEncontradaError } from '../../domain/errors/tarefa.errors';
+import {
+  TarefaNaoEncontradaError,
+  TarefaTipoInvalidoError,
+} from '../../domain/errors/tarefa.errors';
+import { TipoTarefa } from '../../domain/tipo-tarefa.enum';
 import {
   type TarefaOutput,
   TarefaOutputMapper,
@@ -24,6 +28,9 @@ export class DevolverTarefaDiagnosticoUseCase {
         const tarefa = await this.tarefas.buscarPorId(contexto, tarefaId);
         if (!tarefa) {
           throw new TarefaNaoEncontradaError(tarefaId);
+        }
+        if (tarefa.tipo !== TipoTarefa.DIAGNOSTICO) {
+          throw new TarefaTipoInvalidoError('devolver à fila', tarefa.tipo);
         }
 
         const agora = this.agora();

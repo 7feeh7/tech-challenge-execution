@@ -394,8 +394,12 @@ describe('Mensageria e DynamoDB (integração)', () => {
       });
     });
 
-    const reivindicados = await publicador.reivindicarLote();
-    const registro = reivindicados.find((r) => r.eventId === outboxId);
+    const outboxRepo = modulo.get(DynamoDbOutboxRepositorio);
+    const registro = await outboxRepo.reivindicar(
+      outboxId,
+      randomUUID(),
+      new Date(Date.now() + 300_000).toISOString(),
+    );
     expect(registro).toBeDefined();
     filaMemoria.enviar = async () => {
       throw new Error('falha simulada SQS');

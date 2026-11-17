@@ -1,5 +1,7 @@
 import {
   DevolucaoForaDaRodadaInicialError,
+  MotivoFalhaReparoObrigatorioError,
+  TarefaInterrupcaoSolicitadaError,
   TarefaSituacaoInvalidaError,
 } from '../errors/tarefa.errors';
 import { SituacaoTarefa } from '../situacao-tarefa.enum';
@@ -12,6 +14,25 @@ export interface ItemDiagnostico {
   quantidade: number;
 }
 
+export interface ItemOficial {
+  tipo: 'PECA' | 'SERVICO';
+  itemId: string;
+  nome: string;
+  quantidade: number;
+}
+
+export interface ItemUtilizado {
+  itemId: string;
+  quantidade: number;
+}
+
+export interface DivergenciaPeca {
+  itemId: string;
+  quantidadePrevista: number;
+  quantidadeUtilizada: number;
+  observacao: string;
+}
+
 export interface VeiculoTarefa {
   placa: string;
   modelo: string;
@@ -20,6 +41,13 @@ export interface VeiculoTarefa {
 export interface ConclusaoDiagnostico {
   laudo: string;
   itens: ItemDiagnostico[];
+}
+
+export interface ExecucaoReparoGravada {
+  servicosRealizados: ItemUtilizado[];
+  pecasUtilizadas: ItemUtilizado[];
+  divergencias: DivergenciaPeca[];
+  motivoFalha: string | null;
 }
 
 export interface TarefaProps {
@@ -32,10 +60,16 @@ export interface TarefaProps {
   veiculo: VeiculoTarefa;
   descricaoProblema: string;
   sugestoes: ItemDiagnostico[];
+  itensOficiais: ItemOficial[];
   responsavelId: string | null;
   conclusaoPendente: ConclusaoDiagnostico | null;
   laudo: string | null;
   propostaItens: ItemDiagnostico[];
+  servicosRealizados: ItemUtilizado[];
+  pecasUtilizadas: ItemUtilizado[];
+  divergencias: DivergenciaPeca[];
+  motivoFalha: string | null;
+  falhouEm: Date | null;
   criadoEm: Date;
   iniciadoEm: Date | null;
   devolvidaEm: Date | null;
@@ -53,6 +87,7 @@ export type NovaTarefaProps = Pick<
   | 'veiculo'
   | 'descricaoProblema'
   | 'sugestoes'
+  | 'itensOficiais'
 > & { criadoEm: Date };
 
 export class Tarefa {
@@ -67,6 +102,11 @@ export class Tarefa {
       conclusaoPendente: null,
       laudo: null,
       propostaItens: [],
+      servicosRealizados: [],
+      pecasUtilizadas: [],
+      divergencias: [],
+      motivoFalha: null,
+      falhouEm: null,
       iniciadoEm: null,
       devolvidaEm: null,
       concluidaEm: null,
@@ -106,6 +146,9 @@ export class Tarefa {
   get sugestoes(): ItemDiagnostico[] {
     return this.props.sugestoes;
   }
+  get itensOficiais(): ItemOficial[] {
+    return this.props.itensOficiais;
+  }
   get responsavelId(): string | null {
     return this.props.responsavelId;
   }
@@ -117,6 +160,21 @@ export class Tarefa {
   }
   get propostaItens(): ItemDiagnostico[] {
     return this.props.propostaItens;
+  }
+  get servicosRealizados(): ItemUtilizado[] {
+    return this.props.servicosRealizados;
+  }
+  get pecasUtilizadas(): ItemUtilizado[] {
+    return this.props.pecasUtilizadas;
+  }
+  get divergencias(): DivergenciaPeca[] {
+    return this.props.divergencias;
+  }
+  get motivoFalha(): string | null {
+    return this.props.motivoFalha;
+  }
+  get falhouEm(): Date | null {
+    return this.props.falhouEm;
   }
   get criadoEm(): Date {
     return this.props.criadoEm;
@@ -141,6 +199,13 @@ export class Tarefa {
     return (
       this.props.situacao === SituacaoTarefa.EM_ANDAMENTO &&
       this.props.responsavelId === responsavelId
+    );
+  }
+
+  estaEncerradaReparo(): boolean {
+    return (
+      this.props.situacao === SituacaoTarefa.CONCLUIDA ||
+      this.props.situacao === SituacaoTarefa.FALHOU
     );
   }
 
@@ -190,6 +255,43 @@ export class Tarefa {
     this.props.situacao = SituacaoTarefa.EM_ANDAMENTO;
     this.props.conclusaoPendente = null;
     this.atualizar(agora);
+  }
+
+  concluirReparo(execucao: ExecucaoReparoGravada, agora: Date): void {
+    this.recusarSeInterrupcao('concluir o reparo');
+    this.exigirSituacao('concluir o reparo', [SituacaoTarefa.EM_ANDAMENTO]);
+    this.props.situacao = SituacaoTarefa.CONCLUIDA;
+    this.gravarExecucaoReparo(execucao);
+    this.props.concluidaEm = agora;
+    this.atualizar(agora);
+  }
+
+  falharReparo(execucao: ExecucaoReparoGravada, agora: Date): void {
+    this.recusarSeInterrupcao('registrar falha do reparo');
+    this.exigirSituacao('registrar falha do reparo', [
+      SituacaoTarefa.EM_ANDAMENTO,
+    ]);
+    const motivo = execucao.motivoFalha?.trim();
+    if (!motivo) {
+      throw new MotivoFalhaReparoObrigatorioError();
+    }
+    this.props.situacao = SituacaoTarefa.FALHOU;
+    this.gravarExecucaoReparo({ ...execucao, motivoFalha: motivo });
+    this.props.falhouEm = agora;
+    this.atualizar(agora);
+  }
+
+  private gravarExecucaoReparo(execucao: ExecucaoReparoGravada): void {
+    this.props.servicosRealizados = execucao.servicosRealizados;
+    this.props.pecasUtilizadas = execucao.pecasUtilizadas;
+    this.props.divergencias = execucao.divergencias;
+    this.props.motivoFalha = execucao.motivoFalha;
+  }
+
+  private recusarSeInterrupcao(operacao: string): void {
+    if (this.props.situacao === SituacaoTarefa.INTERRUPCAO_SOLICITADA) {
+      throw new TarefaInterrupcaoSolicitadaError(operacao);
+    }
   }
 
   private exigirSituacao(operacao: string, esperadas: SituacaoTarefa[]): void {
