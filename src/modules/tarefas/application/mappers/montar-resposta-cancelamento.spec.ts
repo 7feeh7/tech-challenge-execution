@@ -20,6 +20,27 @@ function criarReparo(): Tarefa {
   });
 }
 
+function criarDiagnostico(): Tarefa {
+  return Tarefa.criar({
+    tipo: TipoTarefa.DIAGNOSTICO,
+    ordemServicoId: 'os-1',
+    rodada: 1,
+    correlationId: 'corr',
+    veiculo: { placa: 'X', modelo: 'Y' },
+    descricaoProblema: '',
+    sugestoes: [],
+    itensOficiais: [],
+    criadoEm: agora,
+  });
+}
+
+function serializadoSemCamposConsumo(payload: Record<string, unknown>): void {
+  const json = JSON.parse(JSON.stringify(payload)) as Record<string, unknown>;
+  expect(json).not.toHaveProperty('pecasUtilizadas');
+  expect(json).not.toHaveProperty('servicosRealizados');
+  expect(json).not.toHaveProperty('divergencias');
+}
+
 describe('montarPayloadRespostaCancelamento', () => {
   it('JA_CONCLUIDA de reparo inclui consumo e fatoTerminalEventId', () => {
     const tarefa = criarReparo();
@@ -51,6 +72,30 @@ describe('montarPayloadRespostaCancelamento', () => {
     });
   });
 
+  it('JA_CONCLUIDA de diagnóstico não inclui consumo nem responsavelId', () => {
+    const tarefa = criarDiagnostico();
+    tarefa.iniciar('mec-1', agora);
+    tarefa.registrarConclusaoPendente({ laudo: 'ok', itens: [] }, agora);
+    tarefa.concluir(agora);
+
+    const payload = montarPayloadRespostaCancelamento(
+      tarefa,
+      TipoTarefa.DIAGNOSTICO,
+      ResultadoCancelamento.JA_CONCLUIDA,
+    );
+
+    expect(payload).toMatchObject({
+      tipoTarefa: 'DIAGNOSTICO',
+      resultado: 'JA_CONCLUIDA',
+      situacaoTarefa: 'CONCLUIDA',
+      concluidaEm: agora.toISOString(),
+      encerradaEm: agora.toISOString(),
+    });
+    expect(payload.responsavelId).toBeUndefined();
+    expect(payload.fatoTerminalEventId).toBeUndefined();
+    serializadoSemCamposConsumo(payload);
+  });
+
   it('JA_ENCERRADA FALHOU inclui motivo e encerradaEm', () => {
     const tarefa = criarReparo();
     tarefa.iniciar('mec-1', agora);
@@ -75,7 +120,7 @@ describe('montarPayloadRespostaCancelamento', () => {
     expect(payload.situacaoTarefa).toBe('FALHOU');
   });
 
-  it('JA_ENCERRADA CANCELADA traz listas vazias sem fato terminal', () => {
+  it('JA_ENCERRADA CANCELADA de reparo traz listas vazias sem fato terminal', () => {
     const tarefa = criarReparo();
     tarefa.cancelarSemInicio('motivo', agora);
 
@@ -92,5 +137,44 @@ describe('montarPayloadRespostaCancelamento', () => {
       divergencias: [],
     });
     expect(payload.fatoTerminalEventId).toBeUndefined();
+  });
+
+  it('JA_ENCERRADA CANCELADA de diagnóstico não inclui campos de consumo', () => {
+    const tarefa = criarDiagnostico();
+    tarefa.cancelarSemInicio('motivo', agora);
+
+    const payload = montarPayloadRespostaCancelamento(
+      tarefa,
+      TipoTarefa.DIAGNOSTICO,
+      ResultadoCancelamento.JA_ENCERRADA,
+    );
+
+    expect(payload).toMatchObject({
+      tipoTarefa: 'DIAGNOSTICO',
+      resultado: 'JA_ENCERRADA',
+      situacaoTarefa: SituacaoTarefa.CANCELADA,
+      encerradaEm: agora.toISOString(),
+    });
+    expect(payload.fatoTerminalEventId).toBeUndefined();
+    expect(payload.responsavelId).toBeUndefined();
+    serializadoSemCamposConsumo(payload);
+  });
+
+  it('CANCELADA_EM_ANDAMENTO de diagnóstico não inclui campos de consumo', () => {
+    const tarefa = criarDiagnostico();
+    tarefa.iniciar('mec-1', agora);
+    tarefa.cancelarEmAndamento('motivo', agora);
+
+    const payload = montarPayloadRespostaCancelamento(
+      tarefa,
+      TipoTarefa.DIAGNOSTICO,
+      ResultadoCancelamento.CANCELADA_EM_ANDAMENTO,
+    );
+
+    expect(payload).toEqual({
+      tipoTarefa: 'DIAGNOSTICO',
+      resultado: 'CANCELADA_EM_ANDAMENTO',
+    });
+    serializadoSemCamposConsumo(payload);
   });
 });

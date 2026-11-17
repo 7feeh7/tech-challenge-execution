@@ -131,7 +131,9 @@ describe('Tarefas — cancelamento (integração DynamoDB Local, E24)', () => {
     return itens.sort((a, b) =>
       String(
         (a.envelope as { occurredAt?: string }).occurredAt ?? '',
-      ).localeCompare(String((b.envelope as { occurredAt?: string }).occurredAt ?? '')),
+      ).localeCompare(
+        String((b.envelope as { occurredAt?: string }).occurredAt ?? ''),
+      ),
     );
   }
 
@@ -141,6 +143,16 @@ describe('Tarefas — cancelamento (integração DynamoDB Local, E24)', () => {
     return eventos.map(
       (e) => (e.envelope as { payload: Record<string, unknown> }).payload,
     );
+  }
+
+  function esperarPayloadSemConsumo(payload: Record<string, unknown>): void {
+    const serializado = JSON.parse(JSON.stringify(payload)) as Record<
+      string,
+      unknown
+    >;
+    expect(serializado).not.toHaveProperty('pecasUtilizadas');
+    expect(serializado).not.toHaveProperty('servicosRealizados');
+    expect(serializado).not.toHaveProperty('divergencias');
   }
 
   beforeAll(async () => {
@@ -309,6 +321,7 @@ describe('Tarefas — cancelamento (integração DynamoDB Local, E24)', () => {
         resultado: ResultadoCancelamento.CANCELADA_SEM_INICIO,
         tipoTarefa: TipoTarefa.DIAGNOSTICO,
       });
+      esperarPayloadSemConsumo(payloads.at(-1) as Record<string, unknown>);
     });
 
     it('tarefa EM_ANDAMENTO responde CANCELADA_EM_ANDAMENTO', async () => {
@@ -333,6 +346,7 @@ describe('Tarefas — cancelamento (integração DynamoDB Local, E24)', () => {
       expect(payloads.at(-1)).toMatchObject({
         resultado: ResultadoCancelamento.CANCELADA_EM_ANDAMENTO,
       });
+      esperarPayloadSemConsumo(payloads.at(-1) as Record<string, unknown>);
     });
   });
 
@@ -483,7 +497,18 @@ describe('Tarefas — cancelamento (integração DynamoDB Local, E24)', () => {
       expect(payloads[1]).toMatchObject({
         resultado: ResultadoCancelamento.JA_ENCERRADA,
         situacaoTarefa: 'CANCELADA',
+        tipoTarefa: TipoTarefa.DIAGNOSTICO,
       });
+      esperarPayloadSemConsumo(payloads[1]);
+      const envelopeGravado = (
+        await procurarEventosOutbox(
+          EVENTO_RESPOSTA_CANCELAMENTO,
+          comando.ordemServicoId,
+        )
+      ).at(-1)?.envelope;
+      esperarPayloadSemConsumo(
+        (envelopeGravado as { payload: Record<string, unknown> }).payload,
+      );
     });
 
     it('JA_ENCERRADA para reparo FALHOU', async () => {
