@@ -58,3 +58,53 @@ export class CursorTarefasInvalidoError extends DomainValidationError {
     super('Cursor de paginação inválido.');
   }
 }
+
+export class TarefaTipoInvalidoError extends DomainConflictError {
+  constructor(operacao: string, tipo: string) {
+    super(
+      `Não é possível ${operacao} em tarefa do tipo ${tipo}; operação restrita ao fluxo correto.`,
+    );
+  }
+}
+
+export class TarefaInterrupcaoSolicitadaError extends DomainConflictError {
+  constructor(operacao: string) {
+    super(
+      `Não é possível ${operacao} enquanto a tarefa aguarda interrupção; use POST /interrupcao.`,
+    );
+  }
+}
+
+export class PecaAdicionalNaoAutorizadaError extends DomainUnprocessableError {
+  constructor(itemId: string) {
+    super(`Peça "${itemId}" não consta nos itens oficiais autorizados.`);
+  }
+}
+
+export class ItemServicoNaoAutorizadoError extends DomainUnprocessableError {
+  constructor(itemId: string) {
+    super(`Serviço "${itemId}" não consta nos itens oficiais autorizados.`);
+  }
+}
+
+export class QuantidadeExcedeAutorizadaError extends DomainUnprocessableError {
+  constructor(itemId: string, informada: number, autorizada: number) {
+    super(
+      `Quantidade ${informada} do item "${itemId}" excede o autorizado (${autorizada}).`,
+    );
+  }
+}
+
+export class QuantidadeUtilizadaInvalidaError extends DomainUnprocessableError {
+  constructor(itemId: string) {
+    super(
+      `Quantidade inválida para o item "${itemId || '(sem id)'}"; informe inteiro positivo.`,
+    );
+  }
+}
+
+export class MotivoFalhaReparoObrigatorioError extends DomainValidationError {
+  constructor() {
+    super('O motivo da falha do reparo é obrigatório.');
+  }
+}

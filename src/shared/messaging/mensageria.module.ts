@@ -1,5 +1,6 @@
 import { forwardRef, Module } from '@nestjs/common';
 import { ProcessadorIniciarDiagnostico } from '@/modules/tarefas/infra/messaging/processador-iniciar-diagnostico';
+import { ProcessadorIniciarReparo } from '@/modules/tarefas/infra/messaging/processador-iniciar-reparo';
 import { TarefasModule } from '@/modules/tarefas/tarefas.module';
 import { DynamoDbModule } from '@/shared/database/dynamodb.module';
 import { MessagingMetricsService } from '@/shared/observability/messaging-metrics.service';
@@ -46,10 +47,11 @@ import { FilaSqsGateway } from './infra/sqs/fila-sqs.gateway';
     MessagingMetricsService,
     {
       provide: PROCESSADORES_MENSAGEM,
-      useFactory: (iniciarDiagnostico: ProcessadorIniciarDiagnostico) => [
-        iniciarDiagnostico,
-      ],
-      inject: [ProcessadorIniciarDiagnostico],
+      useFactory: (
+        iniciarDiagnostico: ProcessadorIniciarDiagnostico,
+        iniciarReparo: ProcessadorIniciarReparo,
+      ) => [iniciarDiagnostico, iniciarReparo],
+      inject: [ProcessadorIniciarDiagnostico, ProcessadorIniciarReparo],
     },
     RoteadorProcessadoresMensagemService,
     ProcessarMensagemEntradaService,

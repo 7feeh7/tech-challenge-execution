@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   COMANDO_INICIAR_DIAGNOSTICO,
+  COMANDO_INICIAR_REPARO,
   type EnvelopeMensagem,
 } from '@/shared/messaging/envelope';
 
@@ -24,6 +25,39 @@ export function criarComandoIniciarDiagnostico(
         {
           tipo: 'PECA',
           itemId: '7c9e6679-7425-40de-944b-e07fc1f90ae7',
+          quantidade: 2,
+        },
+      ],
+    },
+    ...patch,
+  };
+}
+
+export function criarComandoIniciarReparo(
+  patch: Partial<EnvelopeMensagem> = {},
+): EnvelopeMensagem {
+  return {
+    eventId: randomUUID(),
+    eventType: COMANDO_INICIAR_REPARO,
+    version: 1,
+    occurredAt: '2026-11-15T11:00:00.000Z',
+    source: 'os-service',
+    correlationId: randomUUID(),
+    causationId: randomUUID(),
+    ordemServicoId: randomUUID(),
+    rodada: 1,
+    payload: {
+      itensOficiais: [
+        {
+          tipo: 'SERVICO',
+          itemId: '7c9e6679-7425-40de-944b-e07fc1f90ae7',
+          nome: 'Troca de pastilhas',
+          quantidade: 1,
+        },
+        {
+          tipo: 'PECA',
+          itemId: '6ba7b810-9dad-11d1-80b4-00c04fd430c8',
+          nome: 'Pastilha',
           quantidade: 2,
         },
       ],

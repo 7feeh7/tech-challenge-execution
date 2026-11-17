@@ -40,6 +40,7 @@ export class CriarTarefaDiagnosticoUseCase {
     const tarefa = Tarefa.criar({
       ...input,
       tipo: TipoTarefa.DIAGNOSTICO,
+      itensOficiais: [],
       criadoEm: this.agora(),
     });
     await this.tarefas.criar(contexto, tarefa);

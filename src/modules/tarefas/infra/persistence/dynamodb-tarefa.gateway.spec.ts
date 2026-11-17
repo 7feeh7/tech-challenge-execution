@@ -26,6 +26,7 @@ describe('DynamoDbTarefaGateway', () => {
     veiculo: { placa: 'ABC1D23', modelo: 'Sedan' },
     descricaoProblema: 'Barulho',
     sugestoes: [],
+    itensOficiais: [],
     criadoEm: new Date('2026-11-15T10:00:00.000Z'),
   });
   const itemDynamo = marshall(

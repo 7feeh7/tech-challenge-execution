@@ -5,7 +5,10 @@ import {
 } from '@/shared/database/dynamodb-indices.constants';
 import {
   type ConclusaoDiagnostico,
+  type DivergenciaPeca,
   type ItemDiagnostico,
+  type ItemOficial,
+  type ItemUtilizado,
   Tarefa,
   type VeiculoTarefa,
 } from '../../domain/entities/tarefa.entity';
@@ -36,10 +39,16 @@ export class DynamoDbTarefaMapper {
       veiculo: tarefa.veiculo,
       descricaoProblema: tarefa.descricaoProblema,
       sugestoes: tarefa.sugestoes,
+      itensOficiais: tarefa.itensOficiais,
       responsavelId: tarefa.responsavelId ?? undefined,
       conclusaoPendente: tarefa.conclusaoPendente ?? undefined,
       laudo: tarefa.laudo ?? undefined,
       propostaItens: tarefa.propostaItens,
+      servicosRealizados: tarefa.servicosRealizados,
+      pecasUtilizadas: tarefa.pecasUtilizadas,
+      divergencias: tarefa.divergencias,
+      motivoFalha: tarefa.motivoFalha ?? undefined,
+      falhouEm: tarefa.falhouEm?.toISOString(),
       criadoEm: tarefa.criadoEm.toISOString(),
       iniciadoEm: tarefa.iniciadoEm?.toISOString(),
       devolvidaEm: tarefa.devolvidaEm?.toISOString(),
@@ -66,12 +75,19 @@ export class DynamoDbTarefaMapper {
       veiculo: registro.veiculo as VeiculoTarefa,
       descricaoProblema: String(registro.descricaoProblema ?? ''),
       sugestoes: (registro.sugestoes as ItemDiagnostico[]) ?? [],
+      itensOficiais: (registro.itensOficiais as ItemOficial[]) ?? [],
       responsavelId: (registro.responsavelId as string | undefined) ?? null,
       conclusaoPendente:
         (registro.conclusaoPendente as ConclusaoDiagnostico | undefined) ??
         null,
       laudo: (registro.laudo as string | undefined) ?? null,
       propostaItens: (registro.propostaItens as ItemDiagnostico[]) ?? [],
+      servicosRealizados:
+        (registro.servicosRealizados as ItemUtilizado[]) ?? [],
+      pecasUtilizadas: (registro.pecasUtilizadas as ItemUtilizado[]) ?? [],
+      divergencias: (registro.divergencias as DivergenciaPeca[]) ?? [],
+      motivoFalha: (registro.motivoFalha as string | undefined) ?? null,
+      falhouEm: paraData(registro.falhouEm),
       criadoEm: new Date(String(registro.criadoEm)),
       iniciadoEm: paraData(registro.iniciadoEm),
       devolvidaEm: paraData(registro.devolvidaEm),
