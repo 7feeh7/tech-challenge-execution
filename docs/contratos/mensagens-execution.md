@@ -18,6 +18,18 @@ Contratos financeiros não pertencem a este serviço.
 
 Exemplos em `exemplos/`.
 
+### Campos aditivos de reparo (D2.18 revisada, `v1`)
+
+Nos fatos `execution.reparo-concluido.v1`, `execution.reparo-falhou.v1` e `execution.reparo-interrompido.v1`:
+
+| Campo                          | Regra                                                                          |
+| ------------------------------ | ------------------------------------------------------------------------------ |
+| `payload.responsavelId`        | Mecânico autenticado que executou a operação (conclusão, falha ou interrupção) |
+| `divergencias[].tipo`          | `CONSUMO_INFERIOR`, `CONSUMO_ZERO`, `CONSUMO_ACIMA`, `FORA_DA_LISTA`           |
+| `divergencias[].justificativa` | Obrigatória em `CONSUMO_ACIMA` e `FORA_DA_LISTA`; opcional nas demais          |
+
+Mensagens anteriores sem esses campos permanecem válidas (D3.12).
+
 ---
 
 ## Eventos publicados

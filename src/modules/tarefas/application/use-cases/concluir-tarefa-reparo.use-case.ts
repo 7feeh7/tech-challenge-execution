@@ -2,6 +2,7 @@ import { executarComRetentativaConflito } from '@/shared/database/executar-com-r
 import type { UnitOfWork } from '@/shared/database/unit-of-work.port';
 import type { OutboxGateway } from '@/shared/messaging/application/ports/outbox.gateway';
 import { EVENTO_REPARO_CONCLUIDO } from '@/shared/messaging/envelope';
+import { aplicarJustificativaDivergencia } from '../../domain/aplicar-justificativa-divergencia';
 import type { ItemUtilizado } from '../../domain/entities/tarefa.entity';
 import {
   TarefaNaoEncontradaError,
@@ -19,6 +20,8 @@ import { registrarEventoTarefa } from '../registrar-evento-tarefa';
 export interface ConcluirTarefaReparoInput {
   servicosRealizados: ItemUtilizado[];
   pecasUtilizadas: ItemUtilizado[];
+  justificativaDivergencia?: string;
+  responsavelOperacaoId: string;
 }
 
 export class ConcluirTarefaReparoUseCase {
@@ -51,10 +54,16 @@ export class ConcluirTarefaReparoUseCase {
           input.servicosRealizados,
           input.pecasUtilizadas,
         );
+        const divergencias = aplicarJustificativaDivergencia(
+          validada.divergencias,
+          input.justificativaDivergencia,
+        );
         const agora = this.agora();
         tarefa.concluirReparo(
           {
             ...validada,
+            divergencias,
+            responsavelOperacaoId: input.responsavelOperacaoId,
             motivoFalha: null,
           },
           agora,
@@ -68,9 +77,10 @@ export class ConcluirTarefaReparoUseCase {
           {
             tarefaId: tarefa.id,
             concluidoEm: agora.toISOString(),
+            responsavelId: input.responsavelOperacaoId,
             servicosRealizados: validada.servicosRealizados,
             pecasUtilizadas: validada.pecasUtilizadas,
-            divergencias: validada.divergencias,
+            divergencias,
           },
           agora,
         );

@@ -145,12 +145,18 @@ export class TarefasController {
     description:
       'OS sem resposta definitiva; a conclusão do diagnóstico segue pendente.',
   })
-  async concluir(@Param('id') id: string, @Body() body: unknown) {
+  async concluir(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @UsuarioAutenticado() usuario: JwtPayload,
+  ) {
     if (extrairTipoTarefaId(id) === TipoTarefa.REPARO) {
       const dto = await this.validarCorpo(ConcluirReparoDto, body);
       return await this.concluirReparo.execute(id, {
         servicosRealizados: dto.servicosRealizados,
         pecasUtilizadas: dto.pecasUtilizadas,
+        justificativaDivergencia: dto.justificativaDivergencia,
+        responsavelOperacaoId: usuario.sub,
       });
     }
     const dto = await this.validarCorpo(ConcluirDiagnosticoDto, body);
@@ -176,12 +182,18 @@ export class TarefasController {
   @ApiResponse({ status: 404, description: 'Tarefa não encontrada.' })
   @ApiResponse({ status: 409, description: 'Situação inválida.' })
   @ApiResponse({ status: 422, description: 'Conteúdo recusado.' })
-  async falhar(@Param('id') id: string, @Body() body: unknown) {
+  async falhar(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @UsuarioAutenticado() usuario: JwtPayload,
+  ) {
     const dto = await this.validarCorpo(FalharReparoDto, body);
     return await this.falharReparo.execute(id, {
       motivo: dto.motivo,
       servicosRealizados: dto.servicosRealizados,
       pecasUtilizadas: dto.pecasUtilizadas,
+      justificativaDivergencia: dto.justificativaDivergencia,
+      responsavelOperacaoId: usuario.sub,
     });
   }
 

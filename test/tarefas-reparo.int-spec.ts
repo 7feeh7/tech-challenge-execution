@@ -16,9 +16,11 @@ import { IniciarTarefaReparoUseCase } from '@/modules/tarefas/application/use-ca
 import { ListarTarefasUseCase } from '@/modules/tarefas/application/use-cases/listar-tarefas.use-case';
 import type { Tarefa } from '@/modules/tarefas/domain/entities/tarefa.entity';
 import {
-  PecaAdicionalNaoAutorizadaError,
+  ItemPecaIdInvalidoError,
+  JustificativaDivergenciaObrigatoriaError,
   TarefaSituacaoInvalidaError,
 } from '@/modules/tarefas/domain/errors/tarefa.errors';
+import { TipoDivergenciaPeca } from '@/modules/tarefas/domain/tipo-divergencia-peca.enum';
 import { TipoTarefa } from '@/modules/tarefas/domain/tipo-tarefa.enum';
 import { ConflitoTransacionalError } from '@/shared/database/conflito-transacional.error';
 import { DynamoDbModule } from '@/shared/database/dynamodb.module';
@@ -180,10 +182,14 @@ describe('Tarefas de reparo (integração DynamoDB Local)', () => {
       pecasUtilizadas: [
         { itemId: '6ba7b810-9dad-11d1-80b4-00c04fd430c8', quantidade: 1 },
       ],
+      responsavelOperacaoId: 'mec-1',
     });
 
     expect(saida.situacao).toBe('CONCLUIDA');
     expect(saida.divergencias).toHaveLength(1);
+    expect(saida.divergencias[0]?.tipo).toBe(
+      TipoDivergenciaPeca.CONSUMO_INFERIOR,
+    );
     const eventos = await procurarEventosOutbox(
       'execution.reparo-concluido.v1',
       comando.ordemServicoId,
@@ -209,6 +215,7 @@ describe('Tarefas de reparo (integração DynamoDB Local)', () => {
         { itemId: '7c9e6679-7425-40de-944b-e07fc1f90ae7', quantidade: 1 },
       ],
       pecasUtilizadas: [] as { itemId: string; quantidade: number }[],
+      responsavelOperacaoId: 'mec-1',
     };
 
     await Promise.all([
@@ -224,7 +231,56 @@ describe('Tarefas de reparo (integração DynamoDB Local)', () => {
     ).toHaveLength(1);
   });
 
-  it('recusa peça adicional na conclusão', async () => {
+  it('registra peça fora da lista com justificativa e responsavelId no fato', async () => {
+    const { comando, tarefaId } = await consumirComando();
+    await iniciar.execute(tarefaId, 'mec-1');
+    const pecaFora = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
+    await concluir.execute(tarefaId, {
+      servicosRealizados: [
+        { itemId: '7c9e6679-7425-40de-944b-e07fc1f90ae7', quantidade: 1 },
+      ],
+      pecasUtilizadas: [{ itemId: pecaFora, quantidade: 1 }],
+      justificativaDivergencia: 'Necessária em campo',
+      responsavelOperacaoId: 'mec-1',
+    });
+
+    const tarefa = await lerTarefa(tarefaId);
+    expect(tarefa?.responsavelOperacaoId).toBe('mec-1');
+    const eventos = await procurarEventosOutbox(
+      'execution.reparo-concluido.v1',
+      comando.ordemServicoId,
+    );
+    const payload = (
+      eventos[0].envelope as { payload: Record<string, unknown> }
+    ).payload;
+    expect(payload.responsavelId).toBe('mec-1');
+    expect(payload.divergencias).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          tipo: TipoDivergenciaPeca.FORA_DA_LISTA,
+          justificativa: 'Necessária em campo',
+        }),
+      ]),
+    );
+  });
+
+  it('recusa peça fora da lista sem justificativa', async () => {
+    const { tarefaId } = await consumirComando();
+    await iniciar.execute(tarefaId, 'mec-1');
+    await expect(
+      concluir.execute(tarefaId, {
+        servicosRealizados: [
+          { itemId: '7c9e6679-7425-40de-944b-e07fc1f90ae7', quantidade: 1 },
+        ],
+        pecasUtilizadas: [
+          { itemId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', quantidade: 1 },
+        ],
+        responsavelOperacaoId: 'mec-1',
+      }),
+    ).rejects.toBeInstanceOf(JustificativaDivergenciaObrigatoriaError);
+  });
+
+  it('recusa identificador de peça inválido', async () => {
     const { tarefaId } = await consumirComando();
     await iniciar.execute(tarefaId, 'mec-1');
     await expect(
@@ -233,8 +289,39 @@ describe('Tarefas de reparo (integração DynamoDB Local)', () => {
           { itemId: '7c9e6679-7425-40de-944b-e07fc1f90ae7', quantidade: 1 },
         ],
         pecasUtilizadas: [{ itemId: 'peca-extra', quantidade: 1 }],
+        responsavelOperacaoId: 'mec-1',
       }),
-    ).rejects.toBeInstanceOf(PecaAdicionalNaoAutorizadaError);
+    ).rejects.toBeInstanceOf(ItemPecaIdInvalidoError);
+  });
+
+  it('conclusão e falha concorrentes geram um único fato terminal', async () => {
+    const { comando, tarefaId } = await consumirComando();
+    await iniciar.execute(tarefaId, 'mec-1');
+    const entrada = {
+      servicosRealizados: [
+        { itemId: '7c9e6679-7425-40de-944b-e07fc1f90ae7', quantidade: 1 },
+      ],
+      pecasUtilizadas: [
+        { itemId: '6ba7b810-9dad-11d1-80b4-00c04fd430c8', quantidade: 2 },
+      ],
+      responsavelOperacaoId: 'mec-1',
+    };
+    await Promise.allSettled([
+      concluir.execute(tarefaId, entrada),
+      falhar.execute(tarefaId, {
+        motivo: 'Falha no teste concorrente',
+        ...entrada,
+      }),
+    ]);
+    const concluidos = await procurarEventosOutbox(
+      'execution.reparo-concluido.v1',
+      comando.ordemServicoId,
+    );
+    const falhas = await procurarEventosOutbox(
+      'execution.reparo-falhou.v1',
+      comando.ordemServicoId,
+    );
+    expect(concluidos.length + falhas.length).toBe(1);
   });
 
   it('registra falha com ReparoFalhou', async () => {
@@ -242,8 +329,13 @@ describe('Tarefas de reparo (integração DynamoDB Local)', () => {
     await iniciar.execute(tarefaId, 'mec-1');
     await falhar.execute(tarefaId, {
       motivo: 'Peça incompatível',
-      servicosRealizados: [],
-      pecasUtilizadas: [],
+      servicosRealizados: [
+        { itemId: '7c9e6679-7425-40de-944b-e07fc1f90ae7', quantidade: 1 },
+      ],
+      pecasUtilizadas: [
+        { itemId: '6ba7b810-9dad-11d1-80b4-00c04fd430c8', quantidade: 2 },
+      ],
+      responsavelOperacaoId: 'mec-1',
     });
     expect(
       await procurarEventosOutbox(

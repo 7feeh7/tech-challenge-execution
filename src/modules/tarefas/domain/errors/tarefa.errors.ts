@@ -75,9 +75,25 @@ export class TarefaInterrupcaoSolicitadaError extends DomainConflictError {
   }
 }
 
-export class PecaAdicionalNaoAutorizadaError extends DomainUnprocessableError {
+export class ItemPecaIdInvalidoError extends DomainUnprocessableError {
   constructor(itemId: string) {
-    super(`Peça "${itemId}" não consta nos itens oficiais autorizados.`);
+    super(`O identificador "${itemId}" não é um UUID válido para peça.`);
+  }
+}
+
+export class JustificativaDivergenciaObrigatoriaError extends DomainUnprocessableError {
+  constructor() {
+    super(
+      'A justificativa da divergência é obrigatória quando há consumo acima do autorizado ou peça fora da lista.',
+    );
+  }
+}
+
+export class JustificativaDivergenciaInvalidaError extends DomainUnprocessableError {
+  constructor() {
+    super(
+      'A justificativa da divergência não pode ser vazia nem exceder o tamanho máximo permitido.',
+    );
   }
 }
 

@@ -5,10 +5,11 @@ import type {
 } from './entities/tarefa.entity';
 import {
   ItemServicoNaoAutorizadoError,
-  PecaAdicionalNaoAutorizadaError,
   QuantidadeExcedeAutorizadaError,
   QuantidadeUtilizadaInvalidaError,
 } from './errors/tarefa.errors';
+import { TipoDivergenciaPeca } from './tipo-divergencia-peca.enum';
+import { validarItemIdPeca } from './validar-item-id-peca';
 
 export interface ExecucaoReparoValidada {
   servicosRealizados: ItemUtilizado[];
@@ -29,7 +30,71 @@ export function agregarItensUtilizados(
   return mapa;
 }
 
-/** Valida serviços e peças contra os itens oficiais e calcula divergências (D2.18). */
+function agregarPecasUtilizadas(
+  pecasInformadas: ItemUtilizado[],
+): Map<string, number> {
+  const mapa = new Map<string, number>();
+  for (const { itemId, quantidade } of pecasInformadas) {
+    if (!itemId || !Number.isInteger(quantidade) || quantidade <= 0) {
+      throw new QuantidadeUtilizadaInvalidaError(itemId);
+    }
+    validarItemIdPeca(itemId);
+    mapa.set(itemId, (mapa.get(itemId) ?? 0) + quantidade);
+  }
+  return mapa;
+}
+
+function observacaoPorTipo(tipo: TipoDivergenciaPeca): string {
+  switch (tipo) {
+    case TipoDivergenciaPeca.CONSUMO_INFERIOR:
+      return 'Consumo efetivo inferior ao autorizado para a peça.';
+    case TipoDivergenciaPeca.CONSUMO_ZERO:
+      return 'Peça autorizada não consta no consumo efetivo informado.';
+    case TipoDivergenciaPeca.CONSUMO_ACIMA:
+      return 'Consumo efetivo superior ao autorizado para a peça.';
+    case TipoDivergenciaPeca.FORA_DA_LISTA:
+      return 'Peça utilizada fora do previsto.';
+    default:
+      return 'Divergência de consumo registrada.';
+  }
+}
+
+function classificarConsumoOficial(
+  itemId: string,
+  prevista: number,
+  utilizada: number,
+): DivergenciaPeca | null {
+  if (utilizada === prevista) {
+    return null;
+  }
+  if (utilizada === 0) {
+    return {
+      itemId,
+      tipo: TipoDivergenciaPeca.CONSUMO_ZERO,
+      quantidadePrevista: prevista,
+      quantidadeUtilizada: 0,
+      observacao: observacaoPorTipo(TipoDivergenciaPeca.CONSUMO_ZERO),
+    };
+  }
+  if (utilizada < prevista) {
+    return {
+      itemId,
+      tipo: TipoDivergenciaPeca.CONSUMO_INFERIOR,
+      quantidadePrevista: prevista,
+      quantidadeUtilizada: utilizada,
+      observacao: observacaoPorTipo(TipoDivergenciaPeca.CONSUMO_INFERIOR),
+    };
+  }
+  return {
+    itemId,
+    tipo: TipoDivergenciaPeca.CONSUMO_ACIMA,
+    quantidadePrevista: prevista,
+    quantidadeUtilizada: utilizada,
+    observacao: observacaoPorTipo(TipoDivergenciaPeca.CONSUMO_ACIMA),
+  };
+}
+
+/** Valida serviços e peças contra os itens oficiais e calcula divergências (D2.18 revisada). */
 export function validarExecucaoReparo(
   itensOficiais: ItemOficial[],
   servicosInformados: ItemUtilizado[],
@@ -44,7 +109,7 @@ export function validarExecucaoReparo(
   }
 
   const servicosMapa = agregarItensUtilizados(servicosInformados);
-  const pecasMapa = agregarItensUtilizados(pecasInformadas);
+  const pecasMapa = agregarPecasUtilizadas(pecasInformadas);
 
   for (const [itemId, quantidade] of servicosMapa) {
     const autorizada = servicosOficiais.get(itemId);
@@ -56,28 +121,24 @@ export function validarExecucaoReparo(
     }
   }
 
-  for (const [itemId, quantidade] of pecasMapa) {
-    const autorizada = pecasOficiais.get(itemId);
-    if (autorizada === undefined) {
-      throw new PecaAdicionalNaoAutorizadaError(itemId);
-    }
-    if (quantidade > autorizada) {
-      throw new QuantidadeExcedeAutorizadaError(itemId, quantidade, autorizada);
+  const divergencias: DivergenciaPeca[] = [];
+
+  for (const [itemId, prevista] of pecasOficiais) {
+    const utilizada = pecasMapa.get(itemId) ?? 0;
+    const divergencia = classificarConsumoOficial(itemId, prevista, utilizada);
+    if (divergencia) {
+      divergencias.push(divergencia);
     }
   }
 
-  const divergencias: DivergenciaPeca[] = [];
   for (const [itemId, utilizada] of pecasMapa) {
-    const prevista = pecasOficiais.get(itemId)!;
-    if (utilizada !== prevista) {
+    if (!pecasOficiais.has(itemId)) {
       divergencias.push({
         itemId,
-        quantidadePrevista: prevista,
+        tipo: TipoDivergenciaPeca.FORA_DA_LISTA,
+        quantidadePrevista: 0,
         quantidadeUtilizada: utilizada,
-        observacao:
-          utilizada < prevista
-            ? 'Consumo efetivo inferior ao autorizado para a peça.'
-            : 'Peça utilizada fora do previsto.',
+        observacao: observacaoPorTipo(TipoDivergenciaPeca.FORA_DA_LISTA),
       });
     }
   }

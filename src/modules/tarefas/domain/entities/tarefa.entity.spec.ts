@@ -164,6 +164,7 @@ describe('Tarefa', () => {
       servicosRealizados: original.servicosRealizados,
       pecasUtilizadas: original.pecasUtilizadas,
       divergencias: original.divergencias,
+      responsavelOperacaoId: original.responsavelOperacaoId,
       motivoFalha: original.motivoFalha,
       falhouEm: original.falhouEm,
       criadoEm: original.criadoEm,
