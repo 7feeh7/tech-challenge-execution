@@ -2,7 +2,9 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_FILTER } from '@nestjs/core';
 import { HealthModule } from './modules/health/health.module';
+import { DynamoDbModule } from './shared/database/dynamodb.module';
 import { DomainExceptionFilter } from './shared/filters/domain-exception.filter';
+import { MensageriaModule } from './shared/messaging/mensageria.module';
 import { ObservabilityModule } from './shared/observability/observability.module';
 
 @Module({
@@ -12,6 +14,8 @@ import { ObservabilityModule } from './shared/observability/observability.module
       isGlobal: true,
       envFilePath: '.env',
     }),
+    DynamoDbModule,
+    MensageriaModule,
     HealthModule,
   ],
   providers: [

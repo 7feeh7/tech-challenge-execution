@@ -1,4 +1,5 @@
 import { Injectable, type LoggerService } from '@nestjs/common';
+import { getObservabilityLogFields } from '@/shared/http/correlation-id.context';
 import { sanitizeObject, sanitizeString } from './log-sanitizer';
 import { OBSERVABILITY } from './observability.config';
 
@@ -61,5 +62,22 @@ export class JsonLoggerService implements LoggerService {
 
   verbose(message: string, context?: string): void {
     console.log(this.formatLog('verbose', message, context));
+  }
+
+  logWithMeta(
+    level: 'debug' | 'info' | 'warn' | 'error',
+    message: string,
+    meta: Record<string, unknown>,
+    context?: string,
+  ): void {
+    const campos = {
+      ...getObservabilityLogFields(),
+      ...sanitizeObject(meta),
+    };
+    const linha = this.formatLog(level, message, context, campos);
+    if (level === 'error') console.error(linha);
+    else if (level === 'warn') console.warn(linha);
+    else if (level === 'debug') console.debug(linha);
+    else console.log(linha);
   }
 }
