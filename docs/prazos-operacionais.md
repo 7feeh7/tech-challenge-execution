@@ -1,43 +1,54 @@
 # Prazos operacionais — Execution (E25)
 
-Fonte de cálculo: `src/shared/messaging/application/calcular-prazos-operacionais-execution.ts`.
+Fonte: `src/shared/messaging/application/calcular-prazos-operacionais-execution.ts`.
 
-## Padrões de produção (ConfigMap)
+## Valores exatos (ConfigMap / Terraform)
 
-| Variável | Valor |
-| --- | ---: |
-| `DYNAMODB_OPERATION_DEADLINE_MS` | 12000 |
-| `SQS_OPERATION_DEADLINE_MS` | 45000 |
-| `SQS_LONG_POLL_SECONDS` | 10 |
-| `AWS_SDK_MAX_ATTEMPTS` | 3 |
-| `SQS_CONSUMER_LOTE` | 3 |
-| `OUTBOX_PUBLISHER_LOTE` | 5 |
-| `OUTBOX_GSI_MAX_PAGINAS` | 8 |
-| `OUTBOX_REIVINDICACAO_MS` | 480000 |
-| `OS_REQUEST_TIMEOUT_MS` | 3000 |
-| `sqs_visibility_timeout_seconds` (Terraform) | 720 |
-| `terminationGracePeriodSeconds` (Deployment) | 720 |
+| Variável                         |                                                      Valor |
+| -------------------------------- | ---------------------------------------------------------: |
+| `DYNAMODB_OPERATION_DEADLINE_MS` |                                                      12000 |
+| `SQS_OPERATION_DEADLINE_MS`      |                                                      45000 |
+| `SQS_LONG_POLL_SECONDS`          |                                                         10 |
+| `AWS_SDK_MAX_ATTEMPTS`           |                                                          3 |
+| `SQS_CONSUMER_LOTE`              |                                                          3 |
+| `OUTBOX_PUBLISHER_LOTE`          |                                                          5 |
+| `OUTBOX_GSI_MAX_PAGINAS`         | 8 (teto em runtime; **1 página** no pior caso documentado) |
+| `OUTBOX_REIVINDICACAO_MS`        |                                                     480000 |
+| `OS_REQUEST_TIMEOUT_MS`          |                                                       3000 |
+| `MARGEM_OPERACIONAL_MS`          |                                                      30000 |
+| Visibility (Terraform)           |                                                      720 s |
+| `terminationGracePeriodSeconds`  |                                                      720 s |
 
-## Pior caso por fluxo (margem 30 s)
+## Pior caso por fluxo (ms)
 
-| Fluxo | Cálculo resumido | Duração |
-| --- | --- | ---: |
-| Consumidor (lote 3, erro permanente + DLQ + confirmação) | 45 s receive + 3×(72 s transações + 45 s confirmação + 90 s DLQ) | **666 s** |
-| Publicador outbox (lote 5) | 1×Query GSI + claims + 5×(3×DDB + SQS + confirm) | **~441 s** |
-| Conclusão diagnóstico (HTTP síncrono) | 3×conflito×2×DDB + timeout OS | **75 s** |
-| Encerramento gracioso | max(consumidor, publicador) + HTTP OS em voo + margem | **~699 s** |
+| Fluxo                                       | Fórmula                       |              Valor |
+| ------------------------------------------- | ----------------------------- | -----------------: |
+| Transação por mensagem (consumidor)         | 2×3×12000                     |              72000 |
+| Mensagem sucesso                            | 72000+45000                   |             117000 |
+| Mensagem erro permanente (+DLQ+confirmação) | 117000+2×45000                |             207000 |
+| **Ciclo consumidor**                        | 45000+3×207000                | **666000** (666 s) |
+| Item outbox                                 | 3×12000+45000                 |              81000 |
+| **Ciclo publicador**                        | 1×12000+2×12000+5×81000       | **441000** (441 s) |
+| **Diagnóstico HTTP**                        | 3×2×12000+3000                |   **75000** (75 s) |
+| **Encerramento**                            | max(666000,441000)+3000+30000 | **699000** (699 s) |
 
-O receive SQS usa `AbortSignal` único por operação: `maxAttempts` do SDK não multiplica o deadline total.
+Mínimos validados: visibility ≥ **696** s; grace ≥ **699** s; lease ≥ **471** s.
+
+Margem de **30 s** entra no consumidor (visibility), no publicador (lease mínimo) e no encerramento.
+
+Adotados: visibility **720** s (+54 s sobre 696); grace **720** s (+21 s sobre 699); lease **480000** ms (+9000 ms sobre 471000).
+
+Retries SQS compartilham o mesmo `AbortSignal` por operação — não multiplicam o deadline.
 
 ## Impostos no código
 
-| Área | Mecanismo |
-| --- | --- |
-| DynamoDB | `DynamoDbClientProvider.enviar()` + `DYNAMODB_OPERATION_DEADLINE_MS` |
-| SQS | `FilaSqsGateway` + `sinalOperacaoAws(SQS_OPERATION_DEADLINE_MS)` |
-| Long polling | `WaitTimeSeconds` ≤ deadline SQS (validado em `validarConfiguracaoExecution`) |
-| Conflito transacional | `executarComRetentativaConflito` (3 tentativas) + 2 tentativas no consumidor de mensagens |
-| Outbox GSI | `OUTBOX_GSI_MAX_PAGINAS` limita páginas por ciclo |
-| Shutdown | `AbortController` no consumidor; `AgendadorCicloProcessador.parar()` aguarda ciclo; `client.destroy()` nos gateways |
+| Área           | Implementação                                                                                   |
+| -------------- | ----------------------------------------------------------------------------------------------- |
+| DynamoDB       | `DynamoDbClientProvider.enviar` + `DYNAMODB_OPERATION_DEADLINE_MS`                              |
+| SQS            | `FilaSqsGateway` + `sinalOperacaoAws`                                                           |
+| Long poll      | `SQS_LONG_POLL_SECONDS` ≤ `SQS_OPERATION_DEADLINE_MS` (`validarConfiguracaoExecution`)          |
+| UoW / conflito | `executarComRetentativaConflito` (3) + 2 tentativas no consumidor                               |
+| GSI outbox     | `OUTBOX_GSI_MAX_PAGINAS` no repositório                                                         |
+| Shutdown       | `AbortController` consumidor; `AgendadorCicloProcessador.parar`; `onModuleDestroy` nos clientes |
 
-Validação na partida: `validarConfiguracaoExecution()` (antes de `NestFactory.create`) recusa prazos incoerentes; produção exige RS256, filas e segredos sem `DYNAMODB_ENDPOINT`.
+Validação fail-closed antes de `NestFactory.create` (`main.ts`).

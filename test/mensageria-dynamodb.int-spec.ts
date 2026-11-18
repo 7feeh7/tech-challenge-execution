@@ -101,6 +101,10 @@ describe('Mensageria e DynamoDB (integração)', () => {
     await garantirTabelasDynamodb(client);
   });
 
+  afterAll(() => {
+    client.destroy();
+  });
+
   beforeEach(async () => {
     filaMemoria = new FilaMensagensMemoriaGateway();
     const filaExecution = 'https://sqs.local/execution-in';
@@ -378,6 +382,195 @@ describe('Mensageria e DynamoDB (integração)', () => {
       ).Item ?? {},
     );
     expect(estadoFinal.enviadoEm).toBeDefined();
+  });
+
+  it('lote do publicador continua após fencing na liberação de um item', async () => {
+    const outboxIds: string[] = [];
+    for (let i = 0; i < 3; i += 1) {
+      const envelope = criarEnvelope(randomUUID());
+      const outboxId = `out-lote-${randomUUID()}`;
+      outboxIds.push(outboxId);
+      await unitOfWork.executar(async (ctx) => {
+        await outbox.registrar(ctx, {
+          eventId: outboxId,
+          eventType: 'execution.diagnostico-iniciado.v1',
+          envelope,
+          correlationId: envelope.correlationId,
+          causationId: envelope.eventId,
+          destino: DESTINO_FILA_OS,
+        });
+      });
+    }
+
+    const outboxRepo = modulo.get(DynamoDbOutboxRepositorio);
+    const bloqueadoAte = new Date(Date.now() + 300_000).toISOString();
+    const lote: Awaited<
+      ReturnType<DynamoDbOutboxRepositorio['reivindicar']>
+    >[] = [];
+    for (const eventId of outboxIds) {
+      const registro = await outboxRepo.reivindicar(
+        eventId,
+        randomUUID(),
+        bloqueadoAte,
+      );
+      expect(registro).toBeDefined();
+      lote.push(registro!);
+    }
+
+    await publicador.publicarMensagemReivindicada(lote[0]!);
+
+    const meio = lote[1]!;
+    const tokenAntigo = meio.tokenReivindicacao ?? '';
+    const envelopeMeio = meio.envelope as EnvelopeMensagem;
+    const enviarOriginal = filaMemoria.enviar.bind(filaMemoria);
+    filaMemoria.enviar = async (filaUrl, envelope, correlationId) => {
+      if ((envelope as EnvelopeMensagem).eventId === envelopeMeio.eventId) {
+        throw new Error('falha transitória SQS simulada');
+      }
+      return enviarOriginal(filaUrl, envelope, correlationId);
+    };
+    await publicador.publicarMensagemReivindicada(meio);
+    filaMemoria.enviar = enviarOriginal;
+
+    await client.send(
+      new UpdateItemCommand({
+        TableName: tabelas.outbox,
+        Key: marshall({ eventId: meio.eventId }),
+        UpdateExpression: 'SET bloqueadoAte = :passado',
+        ExpressionAttributeValues: marshall({
+          ':passado': new Date(Date.now() - 60_000).toISOString(),
+        }),
+      }),
+    );
+
+    const tokenNovo = randomUUID();
+    const registroMeio = await outboxRepo.reivindicar(
+      meio.eventId,
+      tokenNovo,
+      new Date(Date.now() + 300_000).toISOString(),
+    );
+    expect(registroMeio?.tokenReivindicacao).toBe(tokenNovo);
+    expect(
+      await outboxRepo.liberarAposFalha(
+        meio.eventId,
+        tokenAntigo,
+        new Date(Date.now() + 60_000).toISOString(),
+        2,
+      ),
+    ).toBe(false);
+    expect(await outboxRepo.confirmarEnvio(meio.eventId, tokenAntigo)).toBe(
+      false,
+    );
+
+    await publicador.publicarMensagemReivindicada(registroMeio!);
+    await publicador.publicarMensagemReivindicada(lote[2]!);
+
+    for (const item of lote) {
+      const registro = await client.send(
+        new GetItemCommand({
+          TableName: tabelas.outbox,
+          Key: marshall({ eventId: item.eventId }),
+        }),
+      );
+      expect(unmarshall(registro.Item ?? {}).enviadoEm).toBeDefined();
+    }
+    expect(filaMemoria.enviados.length).toBe(3);
+  });
+
+  it('republicação após falha transitória na publicação (DynamoDB real)', async () => {
+    const envelope = criarEnvelope(randomUUID());
+    const outboxId = `out-repub-real-${randomUUID()}`;
+    await unitOfWork.executar(async (ctx) => {
+      await outbox.registrar(ctx, {
+        eventId: outboxId,
+        eventType: 'execution.diagnostico-iniciado.v1',
+        envelope,
+        correlationId: envelope.correlationId,
+        causationId: envelope.eventId,
+        destino: DESTINO_FILA_OS,
+      });
+    });
+
+    const outboxRepo = modulo.get(DynamoDbOutboxRepositorio);
+    const tokenA = randomUUID();
+    const registroA = await outboxRepo.reivindicar(
+      outboxId,
+      tokenA,
+      new Date(Date.now() + 300_000).toISOString(),
+    );
+    expect(registroA).toBeDefined();
+
+    const enviarOriginal = filaMemoria.enviar.bind(filaMemoria);
+    let primeira = true;
+    filaMemoria.enviar = async (...args) => {
+      if (primeira) {
+        primeira = false;
+        throw new Error('falha transitória SQS');
+      }
+      return enviarOriginal(...args);
+    };
+    await publicador.publicarMensagemReivindicada(registroA!);
+    filaMemoria.enviar = enviarOriginal;
+
+    const itemAposFalha = unmarshall(
+      (
+        await client.send(
+          new GetItemCommand({
+            TableName: tabelas.outbox,
+            Key: marshall({ eventId: outboxId }),
+          }),
+        )
+      ).Item ?? {},
+    );
+    expect(itemAposFalha.enviadoEm).toBeUndefined();
+
+    await client.send(
+      new UpdateItemCommand({
+        TableName: tabelas.outbox,
+        Key: marshall({ eventId: outboxId }),
+        UpdateExpression: 'SET bloqueadoAte = :passado',
+        ExpressionAttributeValues: marshall({
+          ':passado': new Date(Date.now() - 60_000).toISOString(),
+        }),
+      }),
+    );
+
+    const tokenB = randomUUID();
+    const registroB = await outboxRepo.reivindicar(
+      outboxId,
+      tokenB,
+      new Date(Date.now() + 300_000).toISOString(),
+    );
+    expect(registroB).toBeDefined();
+    expect(await outboxRepo.confirmarEnvio(outboxId, tokenA)).toBe(false);
+    expect(
+      await outboxRepo.liberarAposFalha(
+        outboxId,
+        tokenA,
+        new Date(Date.now() + 60_000).toISOString(),
+        2,
+      ),
+    ).toBe(false);
+
+    await publicador.publicarMensagemReivindicada(registroB!);
+
+    const estado = unmarshall(
+      (
+        await client.send(
+          new GetItemCommand({
+            TableName: tabelas.outbox,
+            Key: marshall({ eventId: outboxId }),
+          }),
+        )
+      ).Item ?? {},
+    );
+    expect(estado.enviadoEm).toBeDefined();
+    const envios = filaMemoria.enviados.filter((e) => {
+      const parsed = JSON.parse(e.corpo) as { eventId?: string };
+      return parsed.eventId === envelope.eventId;
+    });
+    expect(envios).toHaveLength(1);
+    expect(JSON.parse(envios[0]?.corpo ?? '{}').eventId).toBe(envelope.eventId);
   });
 
   it('publicação bem-sucedida com falha na confirmação republica mesmo eventId', async () => {

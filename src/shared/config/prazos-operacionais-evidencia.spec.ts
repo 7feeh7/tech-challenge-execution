@@ -14,7 +14,7 @@ describe('Prazos operacionais — evidência no código', () => {
       'utf-8',
     );
     expect(configAws).toContain('DYNAMODB_OPERATION_DEADLINE_MS');
-    expect(provider).toContain('sinalOperacaoAws');
+    expect(provider).toContain('criarSinalOperacaoAws');
     expect(provider).toContain('abortSignal');
   });
 
@@ -24,7 +24,6 @@ describe('Prazos operacionais — evidência no código', () => {
       'utf-8',
     );
     expect(fila).toContain('SQS_LONG_POLL_SECONDS');
-    expect(fila).toContain('sinalOperacaoAws');
     const config = readFileSync(
       join(
         raiz,
@@ -33,6 +32,7 @@ describe('Prazos operacionais — evidência no código', () => {
       'utf-8',
     );
     expect(config).toContain('AWS_SDK_MAX_ATTEMPTS');
+    expect(fila).toContain('criarSinalOperacaoAws');
   });
 
   it('consumidor cancela receive no shutdown e confirma após processar', () => {

@@ -2,10 +2,12 @@
  * Barreira de teste para alinhar duas transações DynamoDB no mesmo instante.
  * Sem alterar o código de produção.
  */
-export function criarBarreiraDupla(): {
+export interface BarreiraTransacaoDynamodb {
   aguardarNaTransacao: () => Promise<void>;
   liberar: () => void;
-} {
+}
+
+export function criarBarreiraDupla(): BarreiraTransacaoDynamodb {
   let participantes = 0;
   let resolver!: () => void;
   const porta = new Promise<void>((resolve) => {

@@ -3,7 +3,7 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { Injectable, type OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { criarOpcoesClienteDynamodb } from '@/shared/aws/config-cliente-dynamodb-aws';
-import { sinalOperacaoAws } from '@/shared/messaging/infra/aws/sinal-operacao-aws';
+import { criarSinalOperacaoAws } from '@/shared/messaging/infra/aws/sinal-operacao-aws';
 
 @Injectable()
 export class DynamoDbClientProvider implements OnModuleDestroy {
@@ -34,13 +34,18 @@ export class DynamoDbClientProvider implements OnModuleDestroy {
     comando: Parameters<DynamoDBClient['send']>[0],
     opcoes?: { abortSignal?: AbortSignal },
   ): Promise<Output> {
-    const resultado = await this.client.send(comando, {
-      abortSignal: sinalOperacaoAws(
-        this.operationDeadlineMs,
-        opcoes?.abortSignal,
-      ),
-    });
-    return resultado as Output;
+    const sinal = criarSinalOperacaoAws(
+      this.operationDeadlineMs,
+      opcoes?.abortSignal,
+    );
+    try {
+      const resultado = await this.client.send(comando, {
+        abortSignal: sinal.signal,
+      });
+      return resultado as Output;
+    } finally {
+      sinal.dispose();
+    }
   }
 
   onModuleDestroy(): void {

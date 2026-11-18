@@ -18,4 +18,18 @@ describe('MetricsService', () => {
     metrics.gauge('backlog', 7);
     expect(metrics.obterGauge('backlog')).toBe(7);
   });
+
+  it('redige tags sensíveis', () => {
+    const metrics = new MetricsService();
+    metrics.increment('privacidade', 1, ['sub:jwt-x', 'tipo:ok']);
+    const registro = [
+      ...(
+        metrics as unknown as {
+          contadores: Map<string, { tags: Record<string, string> }>;
+        }
+      ).contadores.values(),
+    ][0];
+    expect(registro?.tags.sub).toBe('[redacted]');
+    expect(registro?.tags.tipo).toBe('ok');
+  });
 });

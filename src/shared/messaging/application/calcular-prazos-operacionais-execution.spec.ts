@@ -1,7 +1,6 @@
 import {
   AWS_SDK_MAX_ATTEMPTS_PADRAO,
   calcularPrazosOperacionaisExecution,
-  MARGEM_OPERACIONAL_MS,
 } from './calcular-prazos-operacionais-execution';
 
 const PARAMETROS_PADRAO = {
@@ -23,18 +22,20 @@ describe('calcularPrazosOperacionaisExecution', () => {
       resultado.tempoMensagemSucessoMs,
     );
     expect(resultado.cicloConsumidorPiorCasoMs).toBe(666_000);
+    expect(resultado.cicloOutboxPiorCasoMs).toBe(441_000);
+    expect(resultado.requisicaoDiagnosticoPiorCasoMs).toBe(75_000);
     expect(resultado.visibilityTimeoutSecondsMinimo).toBe(696);
-    expect(resultado.outboxReivindicacaoMsMinimo).toBeLessThan(480_000);
-    expect(resultado.shutdownPiorCasoMs).toBe(
-      Math.max(
-        resultado.cicloConsumidorPiorCasoMs,
-        resultado.cicloOutboxPiorCasoMs,
-      ) +
-        PARAMETROS_PADRAO.osRequestTimeoutMs +
-        MARGEM_OPERACIONAL_MS,
+    expect(resultado.shutdownPiorCasoMs).toBe(699_000);
+    expect(resultado.terminationGracePeriodSecondsMinimo).toBe(699);
+    expect(resultado.outboxReivindicacaoMsMinimo).toBe(471_000);
+    expect(720_000).toBeGreaterThanOrEqual(
+      resultado.terminationGracePeriodSecondsMinimo * 1000,
     );
-    expect(resultado.terminationGracePeriodSecondsMinimo).toBeLessThanOrEqual(
-      720,
+    expect(720).toBeGreaterThanOrEqual(
+      resultado.visibilityTimeoutSecondsMinimo,
+    );
+    expect(480_000).toBeGreaterThanOrEqual(
+      resultado.outboxReivindicacaoMsMinimo,
     );
   });
 });
