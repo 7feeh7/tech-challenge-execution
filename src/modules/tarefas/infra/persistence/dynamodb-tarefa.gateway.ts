@@ -28,7 +28,11 @@ import type {
 import type { Tarefa } from '../../domain/entities/tarefa.entity';
 import { CursorTarefasInvalidoError } from '../../domain/errors/tarefa.errors';
 import { TIPO_REGISTRO_MARCADOR_BLOQUEIO } from '../../domain/marcador-bloqueio';
-import { DynamoDbTarefaMapper } from './dynamodb-tarefa.mapper';
+import {
+  ehTarefa,
+  tarefaToDomain,
+  tarefaToItem,
+} from './dynamodb-tarefa.mapper';
 
 @Injectable()
 export class DynamoDbTarefaGateway
@@ -47,8 +51,8 @@ export class DynamoDbTarefaGateway
     const registro = await ctx.obterRegistro(ctx.nomeTabelaTarefas(), {
       pk: id,
     });
-    if (!registro || !DynamoDbTarefaMapper.ehTarefa(registro)) return null;
-    return DynamoDbTarefaMapper.toDomain(registro);
+    if (!registro || !ehTarefa(registro)) return null;
+    return tarefaToDomain(registro);
   }
 
   async existeRegistro(
@@ -98,7 +102,7 @@ export class DynamoDbTarefaGateway
     ctx.adicionarEscrita({
       Put: {
         TableName: ctx.nomeTabelaTarefas(),
-        Item: marshall(DynamoDbTarefaMapper.toItem(tarefa), {
+        Item: marshall(tarefaToItem(tarefa), {
           removeUndefinedValues: true,
         }),
         ConditionExpression: 'attribute_not_exists(pk)',
@@ -111,7 +115,7 @@ export class DynamoDbTarefaGateway
     ctx.adicionarEscrita({
       Put: {
         TableName: ctx.nomeTabelaTarefas(),
-        Item: marshall(DynamoDbTarefaMapper.toItem(tarefa), {
+        Item: marshall(tarefaToItem(tarefa), {
           removeUndefinedValues: true,
         }),
         ConditionExpression: 'versao = :versaoLida',
@@ -130,9 +134,7 @@ export class DynamoDbTarefaGateway
     );
     if (!resposta.Item) return null;
     const registro = unmarshall(resposta.Item);
-    return DynamoDbTarefaMapper.ehTarefa(registro)
-      ? DynamoDbTarefaMapper.toDomain(registro)
-      : null;
+    return ehTarefa(registro) ? tarefaToDomain(registro) : null;
   }
 
   async listarFila(filtro: FiltroFilaTarefas): Promise<PaginaTarefas> {
@@ -154,7 +156,7 @@ export class DynamoDbTarefaGateway
 
     return {
       tarefas: (resposta.Items ?? []).map((item) =>
-        DynamoDbTarefaMapper.toDomain(unmarshall(item)),
+        tarefaToDomain(unmarshall(item)),
       ),
       proximoCursor: resposta.LastEvaluatedKey
         ? codificarCursor(unmarshall(resposta.LastEvaluatedKey))

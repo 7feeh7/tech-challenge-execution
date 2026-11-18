@@ -9,7 +9,7 @@ import {
 import { TipoTarefa } from '../../domain/tipo-tarefa.enum';
 import {
   type TarefaOutput,
-  TarefaOutputMapper,
+  toTarefaOutput,
 } from '../mappers/tarefa-output.mapper';
 import type { TarefaGateway } from '../ports/tarefa.gateway';
 import { registrarEventoTarefa } from '../registrar-evento-tarefa';
@@ -44,7 +44,7 @@ export class DevolverTarefaDiagnosticoUseCase {
           { tarefaId: tarefa.id, devolvidaEm: agora.toISOString() },
           agora,
         );
-        return TarefaOutputMapper.toOutput(tarefa);
+        return toTarefaOutput(tarefa);
       }),
     );
   }

@@ -2,6 +2,9 @@ import {
   correlationIdStorage,
   getObservabilityLogFields,
 } from '@/shared/http/correlation-id.context';
+import { criarContextoObservabilidadeMensagem } from '@/shared/messaging/criar-contexto-observabilidade-mensagem';
+import type { EnvelopeMensagem } from '@/shared/messaging/envelope';
+import { JsonLoggerService } from './json-logger.service';
 import { MessagingMetricsService } from './messaging-metrics.service';
 import { MetricsService } from './metrics.service';
 
@@ -52,6 +55,55 @@ describe('Privacidade de métricas e contexto de tracing', () => {
     ];
     expect(JSON.stringify(chaves)).not.toMatch(
       /justificativa|motivo|Bearer|OS_SERVICE/,
+    );
+  });
+
+  it('contexto de tracing da mensageria não propaga segredos do payload', () => {
+    const envelope = {
+      eventId: 'evt-tracing',
+      eventType: 'os.cancelar-tarefa.v1',
+      correlationId: 'corr-tracing',
+      ordemServicoId: 'os-tracing',
+      rodada: 1,
+      causationId: null,
+      dataOcorrencia: new Date().toISOString(),
+      payload: {
+        justificativaDivergencia: 'segredo-justificativa',
+        motivo: 'segredo-motivo',
+        responsavelId: 'mec-secreto',
+        sub: 'jwt-sub-secreto',
+        OS_SERVICE_TOKEN: 'token-os',
+        authorization: 'Bearer jwt.secreto',
+      },
+    } as EnvelopeMensagem;
+
+    const contexto = criarContextoObservabilidadeMensagem(envelope);
+    const campos = correlationIdStorage.run(contexto, () =>
+      getObservabilityLogFields(),
+    );
+    const logger = new JsonLoggerService();
+    let linha = '';
+    jest.spyOn(console, 'log').mockImplementation((msg) => {
+      linha = String(msg);
+    });
+    correlationIdStorage.run(contexto, () =>
+      logger.logWithMeta('info', 'processamento', {}, 'Mensageria'),
+    );
+    jest.restoreAllMocks();
+
+    expect(campos).toEqual({
+      correlationId: 'corr-tracing',
+      ordemServicoId: 'os-tracing',
+      eventId: 'evt-tracing',
+      causationId: null,
+      eventType: 'os.cancelar-tarefa.v1',
+      rodada: 1,
+    });
+    expect(JSON.stringify(campos)).not.toMatch(
+      /justificativa|segredo-motivo|mec-secreto|jwt|Bearer|OS_SERVICE/i,
+    );
+    expect(JSON.stringify(JSON.parse(linha))).not.toMatch(
+      /justificativa|segredo-motivo|mec-secreto|jwt\.secreto|token-os/i,
     );
   });
 

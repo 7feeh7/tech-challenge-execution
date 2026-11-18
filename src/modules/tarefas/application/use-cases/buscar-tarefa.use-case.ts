@@ -1,7 +1,7 @@
 import { TarefaNaoEncontradaError } from '../../domain/errors/tarefa.errors';
 import {
   type TarefaOutput,
-  TarefaOutputMapper,
+  toTarefaOutput,
 } from '../mappers/tarefa-output.mapper';
 import type { TarefaGateway } from '../ports/tarefa.gateway';
 
@@ -13,6 +13,6 @@ export class BuscarTarefaUseCase {
     if (!tarefa) {
       throw new TarefaNaoEncontradaError(id);
     }
-    return TarefaOutputMapper.toOutput(tarefa);
+    return toTarefaOutput(tarefa);
   }
 }

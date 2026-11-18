@@ -1,7 +1,7 @@
 import {
   DeleteMessageCommand,
-  type ReceiveMessageCommandOutput,
   ReceiveMessageCommand,
+  type ReceiveMessageCommandOutput,
   SendMessageCommand,
   SQSClient,
 } from '@aws-sdk/client-sqs';
