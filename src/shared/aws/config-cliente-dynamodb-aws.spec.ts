@@ -16,4 +16,12 @@ describe('criarOpcoesClienteDynamodb', () => {
     expect(opcoes.operationDeadlineMs).toBe(15000);
     expect(opcoes.maxAttempts).toBe(3);
   });
+
+  it('deriva o deadline da tentativa × tentativas quando não há deadline explícito', () => {
+    const valores: Record<string, string> = { AWS_SDK_MAX_ATTEMPTS: '10' };
+    const config = {
+      get: (k: string) => valores[k],
+    } as unknown as ConfigService;
+    expect(criarOpcoesClienteDynamodb(config).operationDeadlineMs).toBe(40000);
+  });
 });

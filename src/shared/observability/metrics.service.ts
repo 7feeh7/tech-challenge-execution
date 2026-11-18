@@ -24,8 +24,7 @@ export class MetricsService {
 
   gauge(nome: string, valor: number, tags: string[] = []): void {
     const tagMap = tagsParaMapa(tags);
-    const chave =
-      tags.length > 0 ? `${nome}|${JSON.stringify(tagMap)}` : nome;
+    const chave = tags.length > 0 ? `${nome}|${JSON.stringify(tagMap)}` : nome;
     this.gauges.set(chave, valor);
   }
 
@@ -37,8 +36,7 @@ export class MetricsService {
 
   obterGauge(nome: string, tags: string[] = []): number {
     const tagMap = tagsParaMapa(tags);
-    const chave =
-      tags.length > 0 ? `${nome}|${JSON.stringify(tagMap)}` : nome;
+    const chave = tags.length > 0 ? `${nome}|${JSON.stringify(tagMap)}` : nome;
     return this.gauges.get(chave) ?? 0;
   }
 }

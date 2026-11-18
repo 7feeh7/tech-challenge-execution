@@ -18,4 +18,15 @@ describe('criarOpcoesClienteSqs', () => {
     expect(opcoes.region).toBe('sa-east-1');
     expect(opcoes.operationDeadlineMs).toBeGreaterThan(0);
   });
+
+  it('deriva o deadline da tentativa × tentativas quando não há deadline explícito', () => {
+    const valores: Record<string, string> = {
+      SQS_REQUEST_TIMEOUT_MS: '9000',
+      AWS_SDK_MAX_ATTEMPTS: '10',
+    };
+    const config = {
+      get: (k: string) => valores[k],
+    } as unknown as ConfigService;
+    expect(criarOpcoesClienteSqs(config).operationDeadlineMs).toBe(90000);
+  });
 });

@@ -4,7 +4,6 @@ import {
   GetItemCommand,
   PutItemCommand,
   ScanCommand,
-  TransactWriteItemsCommand,
 } from '@aws-sdk/client-dynamodb';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import { ConfigModule } from '@nestjs/config';
@@ -34,7 +33,6 @@ import { FILA_MENSAGENS } from '@/shared/messaging/application/ports/tokens';
 import { ProcessarMensagemEntradaService } from '@/shared/messaging/application/services/processar-mensagem-entrada.service';
 import { MensageriaModule } from '@/shared/messaging/mensageria.module';
 import { ObservabilityModule } from '@/shared/observability/observability.module';
-import { criarBarreiraDupla } from './helpers/barreira-transacao-dynamodb';
 import {
   criarClienteDynamodbTeste,
   criarTabelasIsoladasDynamodb,
@@ -43,6 +41,8 @@ import {
 } from './helpers/dynamodb-test-setup';
 import { criarComandoIniciarReparo } from './helpers/envelope-teste';
 import { FilaMensagensMemoriaGateway } from './helpers/fila-mensagens-memoria.gateway';
+import { executarEmOrdem } from './helpers/instalar-barreira-transacao';
+import { exigirCumprida } from './helpers/resultado-operacao';
 
 describe('Tarefas de reparo (integração DynamoDB Local)', () => {
   const client: DynamoDBClient = criarClienteDynamodbTeste();
@@ -299,63 +299,123 @@ describe('Tarefas de reparo (integração DynamoDB Local)', () => {
     ).rejects.toBeInstanceOf(ItemPecaIdInvalidoError);
   });
 
-  it('conclusão e falha com barreira: um único fato terminal coerente', async () => {
-    const { comando, tarefaId } = await consumirComando();
-    await iniciar.execute(tarefaId, 'mec-1');
+  describe('conclusão × falha do mesmo reparo (barreira ordenada em TransactWriteItems)', () => {
+    const SERVICO = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
+    const PECA = '6ba7b810-9dad-11d1-80b4-00c04fd430c8';
+    const MOTIVO_FALHA = 'Falha no teste concorrente';
     const entrada = {
-      servicosRealizados: [
-        { itemId: '7c9e6679-7425-40de-944b-e07fc1f90ae7', quantidade: 1 },
-      ],
-      pecasUtilizadas: [
-        { itemId: '6ba7b810-9dad-11d1-80b4-00c04fd430c8', quantidade: 2 },
-      ],
+      servicosRealizados: [{ itemId: SERVICO, quantidade: 1 }],
+      pecasUtilizadas: [{ itemId: PECA, quantidade: 2 }],
       responsavelOperacaoId: 'mec-1',
     };
-    const barreira = criarBarreiraDupla();
-    const enviarOriginal = dynamoProvider.enviar.bind(dynamoProvider);
-    const spy = jest
-      .spyOn(dynamoProvider, 'enviar')
-      .mockImplementation(async (comando, opcoes) => {
-        if (comando instanceof TransactWriteItemsCommand) {
-          await barreira.aguardarNaTransacao();
-        }
-        return enviarOriginal(comando, opcoes);
+
+    const payloadDoFato = (fato: Record<string, unknown> | undefined) =>
+      (fato as { envelope: { payload: unknown } }).envelope.payload;
+
+    async function correr(ordem: readonly [string, string]) {
+      const { comando, tarefaId } = await consumirComando();
+      await iniciar.execute(tarefaId, 'mec-1');
+      const resultados = await executarEmOrdem(dynamoProvider, ordem, {
+        conclusao: () => concluir.execute(tarefaId, entrada),
+        falha: () =>
+          falhar.execute(tarefaId, { motivo: MOTIVO_FALHA, ...entrada }),
       });
-    try {
-      await Promise.allSettled([
-        concluir.execute(tarefaId, entrada),
-        falhar.execute(tarefaId, {
-          motivo: 'Falha no teste concorrente',
-          ...entrada,
-        }),
-      ]);
-    } finally {
-      spy.mockRestore();
-      barreira.liberar();
+      const eventos = async (tipo: string) =>
+        procurarEventosOutbox(tipo, comando.ordemServicoId);
+      return {
+        resultados,
+        tarefaId,
+        concluidos: await eventos('execution.reparo-concluido.v1'),
+        falhas: await eventos('execution.reparo-falhou.v1'),
+        interrompidos: await eventos('execution.reparo-interrompido.v1'),
+        respostasCancelamento: await eventos(
+          'execution.resposta-cancelamento.v1',
+        ),
+      };
     }
 
-    const concluidos = await procurarEventosOutbox(
-      'execution.reparo-concluido.v1',
-      comando.ordemServicoId,
-    );
-    const falhas = await procurarEventosOutbox(
-      'execution.reparo-falhou.v1',
-      comando.ordemServicoId,
-    );
-    expect(concluidos.length + falhas.length).toBe(1);
+    it('conclusão grava primeiro: a falha relê o reparo concluído e devolve o estado sem gravar', async () => {
+      const {
+        resultados,
+        tarefaId,
+        concluidos,
+        falhas,
+        interrompidos,
+        respostasCancelamento,
+      } = await correr(['conclusao', 'falha']);
 
-    const tarefaFinal = await lerTarefa(tarefaId);
-    const terminal = tarefaFinal?.situacao;
-    expect(['CONCLUIDA', 'FALHOU']).toContain(terminal);
-    if (terminal === 'CONCLUIDA') {
+      expect(
+        exigirCumprida<{ situacao: string }>(resultados.conclusao).situacao,
+      ).toBe('CONCLUIDA');
+      expect(
+        exigirCumprida<{ situacao: string; motivoFalha: string | null }>(
+          resultados.falha,
+        ),
+      ).toMatchObject({ situacao: 'CONCLUIDA', motivoFalha: null });
       expect(concluidos).toHaveLength(1);
       expect(falhas).toHaveLength(0);
-      expect(tarefaFinal?.fatoTerminalEventId).toBe(concluidos[0]?.eventId);
-    } else {
+      expect(interrompidos).toHaveLength(0);
+      expect(respostasCancelamento).toHaveLength(0);
+      expect(payloadDoFato(concluidos[0])).toEqual({
+        tarefaId,
+        concluidoEm: expect.any(String),
+        responsavelId: 'mec-1',
+        servicosRealizados: entrada.servicosRealizados,
+        pecasUtilizadas: entrada.pecasUtilizadas,
+        divergencias: [],
+      });
+      const tarefa = await lerTarefa(tarefaId);
+      expect(tarefa).toMatchObject({
+        situacao: 'CONCLUIDA',
+        responsavelOperacaoId: 'mec-1',
+        fatoTerminalEventId: concluidos[0]?.eventId,
+        versao: 3,
+      });
+      expect(tarefa?.motivoFalha).toBeUndefined();
+      expect(tarefa?.falhouEm).toBeUndefined();
+    });
+
+    it('falha grava primeiro: a conclusão relê o reparo falho e devolve o estado sem gravar', async () => {
+      const {
+        resultados,
+        tarefaId,
+        concluidos,
+        falhas,
+        interrompidos,
+        respostasCancelamento,
+      } = await correr(['falha', 'conclusao']);
+
+      expect(
+        exigirCumprida<{ situacao: string }>(resultados.falha).situacao,
+      ).toBe('FALHOU');
+      expect(
+        exigirCumprida<{ situacao: string; motivoFalha: string }>(
+          resultados.conclusao,
+        ),
+      ).toMatchObject({ situacao: 'FALHOU', motivoFalha: MOTIVO_FALHA });
       expect(falhas).toHaveLength(1);
       expect(concluidos).toHaveLength(0);
-      expect(tarefaFinal?.fatoTerminalEventId).toBe(falhas[0]?.eventId);
-    }
+      expect(interrompidos).toHaveLength(0);
+      expect(respostasCancelamento).toHaveLength(0);
+      expect(payloadDoFato(falhas[0])).toEqual({
+        tarefaId,
+        falhouEm: expect.any(String),
+        motivo: MOTIVO_FALHA,
+        responsavelId: 'mec-1',
+        servicosRealizados: entrada.servicosRealizados,
+        pecasUtilizadas: entrada.pecasUtilizadas,
+        divergencias: [],
+      });
+      const tarefa = await lerTarefa(tarefaId);
+      expect(tarefa).toMatchObject({
+        situacao: 'FALHOU',
+        motivoFalha: MOTIVO_FALHA,
+        responsavelOperacaoId: 'mec-1',
+        fatoTerminalEventId: falhas[0]?.eventId,
+        versao: 3,
+      });
+      expect(tarefa?.concluidaEm).toBeUndefined();
+    });
   });
 
   it('registra falha com ReparoFalhou', async () => {
