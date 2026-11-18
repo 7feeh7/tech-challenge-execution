@@ -16,6 +16,7 @@ import {
 } from './helpers/dynamodb-test-setup';
 import {
   criarComandoCancelarTarefa,
+  criarComandoIniciarDiagnostico,
   criarComandoIniciarReparo,
 } from './helpers/envelope-teste';
 import { assinarJwtRs256, gerarParDeChavesRsa } from './helpers/jwt-test';
@@ -204,6 +205,104 @@ describe('Tarefas de reparo e interrupção (e2e)', () => {
     });
   });
 
+  describe('tipo de tarefa', () => {
+    it('recusa rotas de reparo em tarefa de diagnóstico', async () => {
+      const comando = criarComandoIniciarDiagnostico();
+      await processarComando.executar(JSON.stringify(comando));
+      const tarefaId = `${comando.ordemServicoId}#${comando.rodada}#DIAGNOSTICO`;
+      expect(
+        (
+          await request(app.getHttpServer())
+            .post(urlTarefa(tarefaId, '/falha'))
+            .set(bearer())
+            .send({ motivo: 'x', ...corpoReparoBase })
+        ).status,
+      ).toBe(409);
+      expect(
+        (
+          await request(app.getHttpServer())
+            .post(urlTarefa(tarefaId, '/interrupcao'))
+            .set(bearer())
+            .send(corpoReparoBase)
+        ).status,
+      ).toBe(409);
+    });
+  });
+
+  describe('autorização e ownership', () => {
+    it('403 para CLIENTE em início, conclusão, falha e interrupção', async () => {
+      const tarefaId = await criarReparoPendente();
+      const cliente = bearer('CLIENTE' as 'MECANICO');
+      expect(
+        (
+          await request(app.getHttpServer())
+            .post(urlTarefa(tarefaId, '/inicio'))
+            .set(cliente)
+        ).status,
+      ).toBe(403);
+      await request(app.getHttpServer())
+        .post(urlTarefa(tarefaId, '/inicio'))
+        .set(bearer())
+        .expect(200);
+      expect(
+        (
+          await request(app.getHttpServer())
+            .post(urlTarefa(tarefaId, '/conclusao'))
+            .set(cliente)
+            .send(corpoReparoBase)
+        ).status,
+      ).toBe(403);
+      expect(
+        (
+          await request(app.getHttpServer())
+            .post(urlTarefa(tarefaId, '/falha'))
+            .set(cliente)
+            .send({ motivo: 'x', ...corpoReparoBase })
+        ).status,
+      ).toBe(403);
+      await processarComando.executar(
+        JSON.stringify(
+          criarComandoCancelarTarefa(
+            { ordemServicoId: tarefaId.split('#')[0] ?? '' },
+            TipoTarefa.REPARO,
+          ),
+        ),
+      );
+      expect(
+        (
+          await request(app.getHttpServer())
+            .post(urlTarefa(tarefaId, '/interrupcao'))
+            .set(cliente)
+            .send(corpoReparoBase)
+        ).status,
+      ).toBe(403);
+    });
+
+    it('403 para mecânico não responsável em conclusão e falha', async () => {
+      const tarefaId = await criarReparoPendente();
+      await request(app.getHttpServer())
+        .post(urlTarefa(tarefaId, '/inicio'))
+        .set(bearer('MECANICO', 'mec-1'))
+        .expect(200);
+      expect(
+        (
+          await request(app.getHttpServer())
+            .post(urlTarefa(tarefaId, '/conclusao'))
+            .set(bearer('MECANICO', 'mec-2'))
+            .send(corpoReparoBase)
+        ).status,
+      ).toBe(403);
+      expect(
+        (
+          await request(app.getHttpServer())
+            .post(urlTarefa(tarefaId, '/falha'))
+            .set(bearer('MECANICO', 'mec-2'))
+            .send({ motivo: 'x', ...corpoReparoBase })
+        ).status,
+      ).toBe(403);
+    });
+  });
+
   describe('autenticação e cancelamento', () => {
     it('401 sem token em início de reparo', async () => {
       const tarefaId = await criarReparoPendente();
@@ -248,6 +347,36 @@ describe('Tarefas de reparo e interrupção (e2e)', () => {
         .set(bearer())
         .send(corpoReparoBase);
       expect(resposta.status).toBe(409);
+    });
+
+    it('recusa conclusão e falha após cancelamento', async () => {
+      const tarefaId = await criarReparoPendente();
+      const ordemServicoId = tarefaId.split('#')[0] ?? '';
+      await request(app.getHttpServer())
+        .post(urlTarefa(tarefaId, '/inicio'))
+        .set(bearer())
+        .expect(200);
+      await processarComando.executar(
+        JSON.stringify(
+          criarComandoCancelarTarefa({ ordemServicoId }, TipoTarefa.REPARO),
+        ),
+      );
+      expect(
+        (
+          await request(app.getHttpServer())
+            .post(urlTarefa(tarefaId, '/conclusao'))
+            .set(bearer())
+            .send(corpoReparoBase)
+        ).status,
+      ).toBe(409);
+      expect(
+        (
+          await request(app.getHttpServer())
+            .post(urlTarefa(tarefaId, '/falha'))
+            .set(bearer())
+            .send({ motivo: 'x', ...corpoReparoBase })
+        ).status,
+      ).toBe(409);
     });
 
     it('ADMINISTRADOR pode listar reparos', async () => {

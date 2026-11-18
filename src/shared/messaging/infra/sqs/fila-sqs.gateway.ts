@@ -5,7 +5,7 @@ import {
   SendMessageCommand,
   SQSClient,
 } from '@aws-sdk/client-sqs';
-import { Injectable, type OnModuleDestroy } from '@nestjs/common';
+import { Injectable, type OnApplicationShutdown } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type {
   FilaMensagensGateway,
@@ -16,8 +16,11 @@ import { criarOpcoesClienteSqs } from '../aws/config-cliente-mensageria-aws';
 import { criarSinalOperacaoAws } from '../aws/sinal-operacao-aws';
 
 @Injectable()
-export class FilaSqsGateway implements FilaMensagensGateway, OnModuleDestroy {
+export class FilaSqsGateway
+  implements FilaMensagensGateway, OnApplicationShutdown
+{
   private readonly client: SQSClient;
+  private encerrado = false;
   private readonly waitTimeSeconds: number;
   private readonly operationDeadlineMs: number;
 
@@ -36,7 +39,9 @@ export class FilaSqsGateway implements FilaMensagensGateway, OnModuleDestroy {
     );
   }
 
-  onModuleDestroy(): void {
+  onApplicationShutdown(): void {
+    if (this.encerrado) return;
+    this.encerrado = true;
     this.client.destroy();
   }
 

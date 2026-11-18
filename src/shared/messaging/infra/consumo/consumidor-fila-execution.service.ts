@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import {
+  type BeforeApplicationShutdown,
   Inject,
   Injectable,
   Logger,
-  type OnModuleDestroy,
   type OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -17,8 +17,9 @@ import { AgendadorCicloProcessador } from '../agendador-ciclo-processador';
 
 @Injectable()
 export class ConsumidorFilaExecutionService
-  implements OnModuleInit, OnModuleDestroy
+  implements OnModuleInit, BeforeApplicationShutdown
 {
+  private paradaEmAndamento?: Promise<void>;
   private readonly logger = new Logger(ConsumidorFilaExecutionService.name);
   private agendador?: AgendadorCicloProcessador;
   private readonly sinalAbortamento = new AbortController();
@@ -58,7 +59,16 @@ export class ConsumidorFilaExecutionService
     this.agendador.iniciar();
   }
 
-  async onModuleDestroy(): Promise<void> {
+  async beforeApplicationShutdown(): Promise<void> {
+    if (this.paradaEmAndamento) {
+      await this.paradaEmAndamento;
+      return;
+    }
+    this.paradaEmAndamento = this.drenar();
+    await this.paradaEmAndamento;
+  }
+
+  private async drenar(): Promise<void> {
     this.sinalAbortamento.abort();
     await this.agendador?.parar();
   }

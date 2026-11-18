@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import {
+  type BeforeApplicationShutdown,
   Inject,
   Injectable,
   Logger,
-  type OnModuleDestroy,
   type OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -21,7 +21,10 @@ import {
 } from '../persistence/dynamodb-outbox-repositorio';
 
 @Injectable()
-export class PublicadorOutboxService implements OnModuleInit, OnModuleDestroy {
+export class PublicadorOutboxService
+  implements OnModuleInit, BeforeApplicationShutdown
+{
+  private paradaEmAndamento?: Promise<void>;
   private readonly logger = new Logger(PublicadorOutboxService.name);
   private agendador?: AgendadorCicloProcessador;
   private readonly habilitado: boolean;
@@ -70,8 +73,13 @@ export class PublicadorOutboxService implements OnModuleInit, OnModuleDestroy {
     this.agendador.iniciar();
   }
 
-  async onModuleDestroy(): Promise<void> {
-    await this.agendador?.parar();
+  async beforeApplicationShutdown(): Promise<void> {
+    if (this.paradaEmAndamento) {
+      await this.paradaEmAndamento;
+      return;
+    }
+    this.paradaEmAndamento = this.agendador?.parar() ?? Promise.resolve();
+    await this.paradaEmAndamento;
   }
 
   async publicarLote(): Promise<void> {

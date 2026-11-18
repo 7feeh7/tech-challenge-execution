@@ -350,11 +350,11 @@ describe('Tarefas de reparo (integração DynamoDB Local)', () => {
     if (terminal === 'CONCLUIDA') {
       expect(concluidos).toHaveLength(1);
       expect(falhas).toHaveLength(0);
-      expect(tarefaFinal?.fatoTerminalEventId).toBeDefined();
+      expect(tarefaFinal?.fatoTerminalEventId).toBe(concluidos[0]?.eventId);
     } else {
       expect(falhas).toHaveLength(1);
       expect(concluidos).toHaveLength(0);
-      expect(tarefaFinal?.fatoTerminalEventId).toBeDefined();
+      expect(tarefaFinal?.fatoTerminalEventId).toBe(falhas[0]?.eventId);
     }
   });
 

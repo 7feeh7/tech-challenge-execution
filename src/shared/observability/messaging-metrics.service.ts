@@ -29,8 +29,13 @@ export class MessagingMetricsService {
     ]);
   }
 
-  async recordOutboxBacklog(): Promise<void> {
-    const pendentes = await this.outboxRepo.contarPendentes();
-    this.metrics.gauge(METRIC_NAMES.outboxPendentes, pendentes);
+  async recordOutboxBacklog(opcoes?: {
+    sinalAbortamento?: AbortSignal;
+  }): Promise<void> {
+    const contagem = await this.outboxRepo.contarPendentes(opcoes);
+    this.metrics.gauge(METRIC_NAMES.outboxPendentes, contagem.quantidade, [
+      `truncada:${contagem.truncada}`,
+      `paginas:${contagem.paginasConsultadas}`,
+    ]);
   }
 }

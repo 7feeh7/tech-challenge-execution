@@ -22,8 +22,11 @@ export class MetricsService {
     this.contadores.set(chave, atual);
   }
 
-  gauge(nome: string, valor: number): void {
-    this.gauges.set(nome, valor);
+  gauge(nome: string, valor: number, tags: string[] = []): void {
+    const tagMap = tagsParaMapa(tags);
+    const chave =
+      tags.length > 0 ? `${nome}|${JSON.stringify(tagMap)}` : nome;
+    this.gauges.set(chave, valor);
   }
 
   obterContador(nome: string, tags: string[] = []): number {
@@ -32,8 +35,11 @@ export class MetricsService {
     return this.contadores.get(chave)?.total ?? 0;
   }
 
-  obterGauge(nome: string): number {
-    return this.gauges.get(nome) ?? 0;
+  obterGauge(nome: string, tags: string[] = []): number {
+    const tagMap = tagsParaMapa(tags);
+    const chave =
+      tags.length > 0 ? `${nome}|${JSON.stringify(tagMap)}` : nome;
+    return this.gauges.get(chave) ?? 0;
   }
 }
 

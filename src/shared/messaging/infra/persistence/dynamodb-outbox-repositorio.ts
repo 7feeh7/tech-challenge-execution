@@ -17,6 +17,13 @@ import {
 import { DynamoDbTabelasService } from '@/shared/database/dynamodb-tabelas.config';
 import { OUTBOX_GSI_MAX_PAGINAS_PADRAO } from '@/shared/messaging/application/calcular-prazos-operacionais-execution';
 
+export interface ContagemBacklogOutbox {
+  quantidade: number;
+  /** true quando ainda existem páginas além do teto consultado */
+  truncada: boolean;
+  paginasConsultadas: number;
+}
+
 export interface RegistroOutboxDynamodb {
   eventId: string;
   destino: string;
@@ -199,12 +206,23 @@ export class DynamoDbOutboxRepositorio {
     }
   }
 
-  async contarPendentes(): Promise<number> {
+  async contarPendentes(opcoes?: {
+    sinalAbortamento?: AbortSignal;
+  }): Promise<ContagemBacklogOutbox> {
     const agora = new Date().toISOString();
     let total = 0;
     let lastKey: Record<string, unknown> | undefined;
+    let paginas = 0;
 
-    do {
+    while (paginas < this.gsiMaxPaginas) {
+      if (opcoes?.sinalAbortamento?.aborted) {
+        return {
+          quantidade: total,
+          truncada: true,
+          paginasConsultadas: paginas,
+        };
+      }
+      paginas += 1;
       const resposta = await this.dynamo.enviar<QueryCommandOutput>(
         new QueryCommand({
           TableName: this.tabelas.outbox,
@@ -221,13 +239,25 @@ export class DynamoDbOutboxRepositorio {
             ? marshall(lastKey, { removeUndefinedValues: true })
             : undefined,
         }),
+        { abortSignal: opcoes?.sinalAbortamento },
       );
       total += resposta.Count ?? 0;
       lastKey = resposta.LastEvaluatedKey
         ? unmarshall(resposta.LastEvaluatedKey)
         : undefined;
-    } while (lastKey);
+      if (!lastKey) {
+        return {
+          quantidade: total,
+          truncada: false,
+          paginasConsultadas: paginas,
+        };
+      }
+    }
 
-    return total;
+    return {
+      quantidade: total,
+      truncada: true,
+      paginasConsultadas: paginas,
+    };
   }
 }

@@ -174,7 +174,7 @@ describe('Concorrência E24 (integração DynamoDB Local)', () => {
     const estadoAntesCriacao = await lerTarefa(tarefaId);
     expect(estadoAntesCriacao).toBeUndefined();
 
-    await executarComBarreiraTransacao(dynamo, [
+    const [criacao, cancelamento] = await executarComBarreiraTransacao(dynamo, [
       () =>
         processarComando.executar(
           JSON.stringify(criarComandoIniciarDiagnostico({ ordemServicoId })),
@@ -195,15 +195,16 @@ describe('Concorrência E24 (integração DynamoDB Local)', () => {
       EVENTO_RESPOSTA_CANCELAMENTO,
       ordemServicoId,
     );
-    expect(respostas.length).toBeGreaterThanOrEqual(1);
+    expect(respostas).toHaveLength(1);
+    expect(cancelamento.status).toBe('fulfilled');
     if (item?.tipo === TIPO_REGISTRO_MARCADOR_BLOQUEIO) {
-      const envelope0 = respostas[0]?.envelope as
-        | { payload: unknown }
-        | undefined;
-      const payload = envelope0?.payload;
+      expect(criacao.status).toBe('fulfilled');
+      const envelope0 = respostas[0]?.envelope as { payload: unknown };
+      const payload = envelope0.payload;
       expect(payload).toMatchObject({
         resultado: ResultadoCancelamento.CANCELADA_SEM_EXISTIR,
       });
+      expect(await lerTarefa(tarefaId)).toBeUndefined();
     } else {
       expect(item).toMatchObject({
         tipo: TipoTarefa.DIAGNOSTICO,
@@ -218,7 +219,7 @@ describe('Concorrência E24 (integração DynamoDB Local)', () => {
     await processarComando.executar(JSON.stringify(comando));
     expect(await lerTarefa(tarefaId)).toMatchObject({ situacao: 'PENDENTE' });
 
-    await executarComBarreiraTransacao(dynamo, [
+    const [inicio, cancelamento] = await executarComBarreiraTransacao(dynamo, [
       () => iniciarReparo.execute(tarefaId, 'mec-1'),
       () =>
         processarComando.executar(
@@ -232,15 +233,28 @@ describe('Concorrência E24 (integração DynamoDB Local)', () => {
     ]);
 
     const final = await lerTarefa(tarefaId);
-    expect(final).toBeDefined();
-    expect(['EM_ANDAMENTO', 'INTERRUPCAO_SOLICITADA', 'CANCELADA']).toContain(
-      final?.situacao,
+    const respostas = await eventosOutbox(
+      EVENTO_RESPOSTA_CANCELAMENTO,
+      comando.ordemServicoId,
     );
     const concluidos = await eventosOutbox(
       'execution.reparo-concluido.v1',
       comando.ordemServicoId,
     );
     expect(concluidos).toHaveLength(0);
+    if (final?.situacao === SituacaoTarefa.CANCELADA) {
+      expect(cancelamento.status).toBe('fulfilled');
+      expect(respostas).toHaveLength(1);
+    } else if (final?.situacao === SituacaoTarefa.INTERRUPCAO_SOLICITADA) {
+      expect(cancelamento.status).toBe('fulfilled');
+      expect(inicio.status).toBe('fulfilled');
+      expect(respostas).toHaveLength(1);
+    } else if (final?.situacao === SituacaoTarefa.EM_ANDAMENTO) {
+      expect(inicio.status).toBe('fulfilled');
+      expect(respostas).toHaveLength(0);
+    } else {
+      throw new Error(`situação inesperada: ${String(final?.situacao)}`);
+    }
   });
 
   it('conclusão de reparo versus cancelamento: um fato terminal ou interrupção', async () => {
@@ -254,20 +268,27 @@ describe('Concorrência E24 (integração DynamoDB Local)', () => {
       responsavelOperacaoId: 'mec-1',
     };
 
-    await executarComBarreiraTransacao(dynamo, [
-      () => concluirReparo.execute(tarefaId, entrada),
-      () =>
-        processarComando.executar(
-          JSON.stringify(
-            criarComandoCancelarTarefa(
-              { ordemServicoId: comando.ordemServicoId },
-              TipoTarefa.REPARO,
+    const [conclusao, cancelamento] = await executarComBarreiraTransacao(
+      dynamo,
+      [
+        () => concluirReparo.execute(tarefaId, entrada),
+        () =>
+          processarComando.executar(
+            JSON.stringify(
+              criarComandoCancelarTarefa(
+                { ordemServicoId: comando.ordemServicoId },
+                TipoTarefa.REPARO,
+              ),
             ),
           ),
-        ),
-    ]);
+      ],
+    );
 
     const final = await lerTarefa(tarefaId);
+    const respostas = await eventosOutbox(
+      EVENTO_RESPOSTA_CANCELAMENTO,
+      comando.ordemServicoId,
+    );
     const concluidos = await eventosOutbox(
       'execution.reparo-concluido.v1',
       comando.ordemServicoId,
@@ -277,13 +298,20 @@ describe('Concorrência E24 (integração DynamoDB Local)', () => {
       comando.ordemServicoId,
     );
     if (final?.situacao === 'CONCLUIDA') {
+      expect(conclusao.status).toBe('fulfilled');
       expect(concluidos).toHaveLength(1);
       expect(falhas).toHaveLength(0);
-    } else {
-      expect(final?.situacao).toMatch(
-        /INTERRUPCAO_SOLICITADA|EM_ANDAMENTO|CANCELADA/,
-      );
+      expect(final.fatoTerminalEventId).toBe(concluidos[0]?.eventId);
+    } else if (final?.situacao === SituacaoTarefa.CANCELADA) {
+      expect(cancelamento.status).toBe('fulfilled');
+      expect(respostas).toHaveLength(1);
       expect(concluidos).toHaveLength(0);
+    } else if (final?.situacao === SituacaoTarefa.INTERRUPCAO_SOLICITADA) {
+      expect(cancelamento.status).toBe('fulfilled');
+      expect(respostas).toHaveLength(1);
+      expect(concluidos).toHaveLength(0);
+    } else {
+      throw new Error(`situação inesperada: ${String(final?.situacao)}`);
     }
   });
 
@@ -293,7 +321,7 @@ describe('Concorrência E24 (integração DynamoDB Local)', () => {
     await processarComando.executar(JSON.stringify(comando));
     await iniciarReparo.execute(tarefaId, 'mec-1');
 
-    await executarComBarreiraTransacao(dynamo, [
+    const [falha, cancelamento] = await executarComBarreiraTransacao(dynamo, [
       () =>
         falharReparo.execute(tarefaId, {
           motivo: 'corrida-e24',
@@ -313,6 +341,10 @@ describe('Concorrência E24 (integração DynamoDB Local)', () => {
     ]);
 
     const final = await lerTarefa(tarefaId);
+    const respostas = await eventosOutbox(
+      EVENTO_RESPOSTA_CANCELAMENTO,
+      comando.ordemServicoId,
+    );
     const falhas = await eventosOutbox(
       'execution.reparo-falhou.v1',
       comando.ordemServicoId,
@@ -321,9 +353,26 @@ describe('Concorrência E24 (integração DynamoDB Local)', () => {
       'execution.reparo-concluido.v1',
       comando.ordemServicoId,
     );
-    expect(concluidos.length + falhas.length).toBeLessThanOrEqual(1);
+    expect(concluidos).toHaveLength(0);
     if (final?.situacao === 'FALHOU') {
+      expect(falha.status).toBe('fulfilled');
       expect(falhas).toHaveLength(1);
+      expect(respostas).toHaveLength(1);
+      expect(
+        (respostas[0]?.envelope as { payload: Record<string, unknown> })
+          .payload.resultado,
+      ).toBe(ResultadoCancelamento.JA_ENCERRADA);
+      expect(final.fatoTerminalEventId).toBe(falhas[0]?.eventId);
+    } else if (final?.situacao === SituacaoTarefa.CANCELADA) {
+      expect(cancelamento.status).toBe('fulfilled');
+      expect(falhas).toHaveLength(0);
+      expect(respostas).toHaveLength(1);
+    } else if (final?.situacao === SituacaoTarefa.INTERRUPCAO_SOLICITADA) {
+      expect(cancelamento.status).toBe('fulfilled');
+      expect(falhas).toHaveLength(0);
+      expect(respostas).toHaveLength(1);
+    } else {
+      throw new Error(`situação inesperada: ${String(final?.situacao)}`);
     }
   });
 

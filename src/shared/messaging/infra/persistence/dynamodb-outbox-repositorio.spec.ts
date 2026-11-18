@@ -44,7 +44,10 @@ describe('DynamoDbOutboxRepositorio', () => {
     expect(reivindicada?.eventId).toBe('e1');
     await expect(repo.confirmarEnvio('e1', 't')).resolves.toBe(true);
     await repo.liberarAposFalha('e1', 't', new Date().toISOString(), 2);
-    await expect(repo.contarPendentes()).resolves.toBeGreaterThanOrEqual(0);
+    await expect(repo.contarPendentes()).resolves.toMatchObject({
+      quantidade: expect.any(Number),
+      truncada: expect.any(Boolean),
+    });
   });
 
   it('retorna null quando reivindicação perde condição', async () => {
