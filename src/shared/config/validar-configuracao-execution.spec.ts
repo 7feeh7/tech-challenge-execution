@@ -63,4 +63,109 @@ describe('validarConfiguracaoExecution', () => {
       }),
     ).toThrow(/SQS_OPERATION_DEADLINE_MS/);
   });
+
+  it('recusa grace period abaixo do pior caso de encerramento', () => {
+    expect(() =>
+      validarConfiguracaoExecution({
+        ...baseDev,
+        TERMINATION_GRACE_PERIOD_SECONDS: '60',
+      }),
+    ).toThrow(/TERMINATION_GRACE_PERIOD_SECONDS/);
+  });
+
+  it('aceita configuração de produção completa sem expor segredos na mensagem', () => {
+    const chave = `-----BEGIN PUBLIC KEY-----\nMIIB\n-----END PUBLIC KEY-----`;
+    expect(() =>
+      validarConfiguracaoExecution({
+        NODE_ENV: 'production',
+        JWT_PUBLIC_KEY: chave,
+        JWT_ISSUER: 'oficina',
+        JWT_AUDIENCE: 'execution',
+        OS_SERVICE_TOKEN: 'token-sintetico',
+        OS_SERVICE_BASE_URL: 'http://os.svc',
+        SQS_EXECUTION_IN_URL: 'https://sqs.aws/in',
+        SQS_EXECUTION_IN_DLQ_URL: 'https://sqs.aws/dlq',
+        SQS_OS_IN_URL: 'https://sqs.aws/os',
+        DYNAMODB_TAREFAS_TABLE: 'tarefas',
+        DYNAMODB_OUTBOX_TABLE: 'outbox',
+        DYNAMODB_MENSAGENS_PROCESSADAS_TABLE: 'proc',
+        SQS_VISIBILITY_TIMEOUT_SECONDS: '720',
+        OUTBOX_REIVINDICACAO_MS: '480000',
+        TERMINATION_GRACE_PERIOD_SECONDS: '720',
+      }),
+    ).not.toThrow();
+  });
+
+  it('recusa OS_SERVICE_TOKEN ausente em produção', () => {
+    const chave = `-----BEGIN PUBLIC KEY-----\nMIIB\n-----END PUBLIC KEY-----`;
+    let mensagem = '';
+    try {
+      validarConfiguracaoExecution({
+        NODE_ENV: 'production',
+        JWT_PUBLIC_KEY: chave,
+        JWT_ISSUER: 'oficina',
+        JWT_AUDIENCE: 'execution',
+        OS_SERVICE_BASE_URL: 'http://os.svc',
+        SQS_EXECUTION_IN_URL: 'https://sqs.aws/in',
+        SQS_EXECUTION_IN_DLQ_URL: 'https://sqs.aws/dlq',
+        SQS_OS_IN_URL: 'https://sqs.aws/os',
+        DYNAMODB_TAREFAS_TABLE: 'tarefas',
+        DYNAMODB_OUTBOX_TABLE: 'outbox',
+        DYNAMODB_MENSAGENS_PROCESSADAS_TABLE: 'proc',
+        SQS_VISIBILITY_TIMEOUT_SECONDS: '720',
+        OUTBOX_REIVINDICACAO_MS: '480000',
+        TERMINATION_GRACE_PERIOD_SECONDS: '720',
+      });
+    } catch (erro) {
+      mensagem = erro instanceof Error ? erro.message : String(erro);
+    }
+    expect(mensagem).toMatch(/OS_SERVICE_TOKEN/);
+    expect(mensagem).not.toContain('token-sintetico');
+  });
+
+  it('recusa JWT_PUBLIC_KEY inválida em produção', () => {
+    expect(() =>
+      validarConfiguracaoExecution({
+        NODE_ENV: 'production',
+        JWT_PUBLIC_KEY: 'nao-pem',
+        JWT_ISSUER: 'oficina',
+        JWT_AUDIENCE: 'execution',
+        OS_SERVICE_TOKEN: 'x',
+        OS_SERVICE_BASE_URL: 'http://os.svc',
+        SQS_EXECUTION_IN_URL: 'https://sqs.aws/in',
+        SQS_EXECUTION_IN_DLQ_URL: 'https://sqs.aws/dlq',
+        SQS_OS_IN_URL: 'https://sqs.aws/os',
+        DYNAMODB_TAREFAS_TABLE: 'tarefas',
+        DYNAMODB_OUTBOX_TABLE: 'outbox',
+        DYNAMODB_MENSAGENS_PROCESSADAS_TABLE: 'proc',
+        SQS_VISIBILITY_TIMEOUT_SECONDS: '720',
+        OUTBOX_REIVINDICACAO_MS: '480000',
+        TERMINATION_GRACE_PERIOD_SECONDS: '720',
+      }),
+    ).toThrow(/JWT_PUBLIC_KEY/);
+  });
+
+  it('recusa DYNAMODB_ENDPOINT em produção', () => {
+    const chave = `-----BEGIN PUBLIC KEY-----\nMIIB\n-----END PUBLIC KEY-----`;
+    expect(() =>
+      validarConfiguracaoExecution({
+        NODE_ENV: 'production',
+        JWT_PUBLIC_KEY: chave,
+        JWT_ISSUER: 'oficina',
+        JWT_AUDIENCE: 'execution',
+        OS_SERVICE_TOKEN: 'x',
+        OS_SERVICE_BASE_URL: 'http://os.svc',
+        DYNAMODB_ENDPOINT: 'http://localhost:8000',
+        SQS_EXECUTION_IN_URL: 'https://sqs.aws/in',
+        SQS_EXECUTION_IN_DLQ_URL: 'https://sqs.aws/dlq',
+        SQS_OS_IN_URL: 'https://sqs.aws/os',
+        DYNAMODB_TAREFAS_TABLE: 'tarefas',
+        DYNAMODB_OUTBOX_TABLE: 'outbox',
+        DYNAMODB_MENSAGENS_PROCESSADAS_TABLE: 'proc',
+        SQS_VISIBILITY_TIMEOUT_SECONDS: '720',
+        OUTBOX_REIVINDICACAO_MS: '480000',
+        TERMINATION_GRACE_PERIOD_SECONDS: '720',
+      }),
+    ).toThrow(/DYNAMODB_ENDPOINT/);
+  });
 });

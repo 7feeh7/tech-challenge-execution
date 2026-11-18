@@ -6,6 +6,7 @@ import {
 } from '@aws-sdk/client-dynamodb';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { DynamoDbClientProvider } from '@/shared/database/dynamodb-client.provider';
 import {
   OUTBOX_ATTR_INDICE_PENDENTE,
@@ -14,6 +15,7 @@ import {
   OUTBOX_VALOR_INDICE_PENDENTE,
 } from '@/shared/database/dynamodb-indices.constants';
 import { DynamoDbTabelasService } from '@/shared/database/dynamodb-tabelas.config';
+import { OUTBOX_GSI_MAX_PAGINAS_PADRAO } from '@/shared/messaging/application/calcular-prazos-operacionais-execution';
 
 export interface RegistroOutboxDynamodb {
   eventId: string;
@@ -29,17 +31,27 @@ const EXPRESSAO_ELEGIVEL =
 
 @Injectable()
 export class DynamoDbOutboxRepositorio {
+  private readonly gsiMaxPaginas: number;
+
   constructor(
     private readonly dynamo: DynamoDbClientProvider,
     private readonly tabelas: DynamoDbTabelasService,
-  ) {}
+    config: ConfigService,
+  ) {
+    this.gsiMaxPaginas = Number(
+      config.get<string>('OUTBOX_GSI_MAX_PAGINAS') ??
+        String(OUTBOX_GSI_MAX_PAGINAS_PADRAO),
+    );
+  }
 
   async listarCandidatasPendentes(limite: number): Promise<string[]> {
     const agora = new Date().toISOString();
     const elegiveis: string[] = [];
     let lastKey: Record<string, unknown> | undefined;
+    let paginas = 0;
 
-    while (elegiveis.length < limite) {
+    while (elegiveis.length < limite && paginas < this.gsiMaxPaginas) {
+      paginas++;
       const resposta = await this.dynamo.enviar<QueryCommandOutput>(
         new QueryCommand({
           TableName: this.tabelas.outbox,

@@ -145,7 +145,7 @@ describe('Outbox com GSI esparso das pendentes (integração com DynamoDB Local)
     });
     provider = new DynamoDbClientProvider(config);
     const tabelas = new DynamoDbTabelasService(config);
-    repositorio = new DynamoDbOutboxRepositorio(provider, tabelas);
+    repositorio = new DynamoDbOutboxRepositorio(provider, tabelas, config);
     unitOfWork = new DynamoDbUnitOfWork(provider, tabelas);
   });
 

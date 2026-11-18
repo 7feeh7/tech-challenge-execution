@@ -4,6 +4,7 @@ import {
   GetItemCommand,
   PutItemCommand,
   ScanCommand,
+  TransactWriteItemsCommand,
 } from '@aws-sdk/client-dynamodb';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import { ConfigModule } from '@nestjs/config';
@@ -24,6 +25,7 @@ import { TipoDivergenciaPeca } from '@/modules/tarefas/domain/tipo-divergencia-p
 import { TipoTarefa } from '@/modules/tarefas/domain/tipo-tarefa.enum';
 import { ConflitoTransacionalError } from '@/shared/database/conflito-transacional.error';
 import { DynamoDbModule } from '@/shared/database/dynamodb.module';
+import { DynamoDbClientProvider } from '@/shared/database/dynamodb-client.provider';
 import {
   UNIT_OF_WORK,
   type UnitOfWork,
@@ -32,6 +34,7 @@ import { FILA_MENSAGENS } from '@/shared/messaging/application/ports/tokens';
 import { ProcessarMensagemEntradaService } from '@/shared/messaging/application/services/processar-mensagem-entrada.service';
 import { MensageriaModule } from '@/shared/messaging/mensageria.module';
 import { ObservabilityModule } from '@/shared/observability/observability.module';
+import { criarBarreiraDupla } from './helpers/barreira-transacao-dynamodb';
 import {
   criarClienteDynamodbTeste,
   criarTabelasIsoladasDynamodb,
@@ -52,6 +55,7 @@ describe('Tarefas de reparo (integração DynamoDB Local)', () => {
   let falhar: FalharTarefaReparoUseCase;
   let unitOfWork: UnitOfWork;
   let gateway: TarefaGateway;
+  let dynamoProvider: DynamoDbClientProvider;
 
   async function lerItem(
     tabela: string,
@@ -117,6 +121,7 @@ describe('Tarefas de reparo (integração DynamoDB Local)', () => {
     falhar = obter(FalharTarefaReparoUseCase);
     unitOfWork = modulo.get(UNIT_OF_WORK);
     gateway = modulo.get(TAREFA_GATEWAY);
+    dynamoProvider = modulo.get(DynamoDbClientProvider);
   });
 
   afterAll(async () => {
@@ -294,7 +299,7 @@ describe('Tarefas de reparo (integração DynamoDB Local)', () => {
     ).rejects.toBeInstanceOf(ItemPecaIdInvalidoError);
   });
 
-  it('conclusão e falha concorrentes geram um único fato terminal', async () => {
+  it('conclusão e falha com barreira: um único fato terminal coerente', async () => {
     const { comando, tarefaId } = await consumirComando();
     await iniciar.execute(tarefaId, 'mec-1');
     const entrada = {
@@ -306,13 +311,29 @@ describe('Tarefas de reparo (integração DynamoDB Local)', () => {
       ],
       responsavelOperacaoId: 'mec-1',
     };
-    await Promise.allSettled([
-      concluir.execute(tarefaId, entrada),
-      falhar.execute(tarefaId, {
-        motivo: 'Falha no teste concorrente',
-        ...entrada,
-      }),
-    ]);
+    const barreira = criarBarreiraDupla();
+    const enviarOriginal = dynamoProvider.enviar.bind(dynamoProvider);
+    const spy = jest
+      .spyOn(dynamoProvider, 'enviar')
+      .mockImplementation(async (comando, opcoes) => {
+        if (comando instanceof TransactWriteItemsCommand) {
+          await barreira.aguardarNaTransacao();
+        }
+        return enviarOriginal(comando, opcoes);
+      });
+    try {
+      await Promise.allSettled([
+        concluir.execute(tarefaId, entrada),
+        falhar.execute(tarefaId, {
+          motivo: 'Falha no teste concorrente',
+          ...entrada,
+        }),
+      ]);
+    } finally {
+      spy.mockRestore();
+      barreira.liberar();
+    }
+
     const concluidos = await procurarEventosOutbox(
       'execution.reparo-concluido.v1',
       comando.ordemServicoId,
@@ -322,6 +343,19 @@ describe('Tarefas de reparo (integração DynamoDB Local)', () => {
       comando.ordemServicoId,
     );
     expect(concluidos.length + falhas.length).toBe(1);
+
+    const tarefaFinal = await lerTarefa(tarefaId);
+    const terminal = tarefaFinal?.situacao;
+    expect(['CONCLUIDA', 'FALHOU']).toContain(terminal);
+    if (terminal === 'CONCLUIDA') {
+      expect(concluidos).toHaveLength(1);
+      expect(falhas).toHaveLength(0);
+      expect(tarefaFinal?.fatoTerminalEventId).toBeDefined();
+    } else {
+      expect(falhas).toHaveLength(1);
+      expect(concluidos).toHaveLength(0);
+      expect(tarefaFinal?.fatoTerminalEventId).toBeDefined();
+    }
   });
 
   it('registra falha com ReparoFalhou', async () => {
