@@ -286,13 +286,13 @@ describe('Outbox com GSI esparso das pendentes (integração com DynamoDB Local)
   });
 
   it('conta como pendentes só as elegíveis pelo índice', async () => {
-    const base = await repositorio.contarPendentes();
+    const base = (await repositorio.contarPendentes()).quantidade;
     const elegivel = await registrarPendente();
     await inserirPendenteEmBackoff(new Date().toISOString(), futuro());
     const enviada = await registrarPendente();
     await publicar(enviada);
 
-    expect(await repositorio.contarPendentes()).toBe(base + 1);
+    expect((await repositorio.contarPendentes()).quantidade).toBe(base + 1);
     await publicar(elegivel);
   });
 });

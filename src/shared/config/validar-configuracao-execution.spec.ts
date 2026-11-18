@@ -5,7 +5,8 @@ describe('validarConfiguracaoExecution', () => {
     NODE_ENV: 'development',
     SQS_VISIBILITY_TIMEOUT_SECONDS: '720',
     OUTBOX_REIVINDICACAO_MS: '480000',
-    TERMINATION_GRACE_PERIOD_SECONDS: '720',
+    TERMINATION_GRACE_PERIOD_SECONDS: '850',
+    OUTBOX_GSI_MAX_PAGINAS: '8',
   };
 
   it('aceita configuração de desenvolvimento mínima', () => {
@@ -91,7 +92,8 @@ describe('validarConfiguracaoExecution', () => {
         DYNAMODB_MENSAGENS_PROCESSADAS_TABLE: 'proc',
         SQS_VISIBILITY_TIMEOUT_SECONDS: '720',
         OUTBOX_REIVINDICACAO_MS: '480000',
-        TERMINATION_GRACE_PERIOD_SECONDS: '720',
+        TERMINATION_GRACE_PERIOD_SECONDS: '850',
+        OUTBOX_GSI_MAX_PAGINAS: '8',
       }),
     ).not.toThrow();
   });
@@ -114,7 +116,8 @@ describe('validarConfiguracaoExecution', () => {
         DYNAMODB_MENSAGENS_PROCESSADAS_TABLE: 'proc',
         SQS_VISIBILITY_TIMEOUT_SECONDS: '720',
         OUTBOX_REIVINDICACAO_MS: '480000',
-        TERMINATION_GRACE_PERIOD_SECONDS: '720',
+        TERMINATION_GRACE_PERIOD_SECONDS: '850',
+        OUTBOX_GSI_MAX_PAGINAS: '8',
       });
     } catch (erro) {
       mensagem = erro instanceof Error ? erro.message : String(erro);
@@ -140,9 +143,34 @@ describe('validarConfiguracaoExecution', () => {
         DYNAMODB_MENSAGENS_PROCESSADAS_TABLE: 'proc',
         SQS_VISIBILITY_TIMEOUT_SECONDS: '720',
         OUTBOX_REIVINDICACAO_MS: '480000',
-        TERMINATION_GRACE_PERIOD_SECONDS: '720',
+        TERMINATION_GRACE_PERIOD_SECONDS: '850',
+        OUTBOX_GSI_MAX_PAGINAS: '8',
       }),
     ).toThrow(/JWT_PUBLIC_KEY/);
+  });
+
+  it('recusa OUTBOX_GSI_MAX_PAGINAS inválido', () => {
+    expect(() =>
+      validarConfiguracaoExecution({
+        ...baseDev,
+        OUTBOX_GSI_MAX_PAGINAS: '0',
+      }),
+    ).toThrow(/OUTBOX_GSI_MAX_PAGINAS|maior que zero/);
+    expect(() =>
+      validarConfiguracaoExecution({
+        ...baseDev,
+        OUTBOX_GSI_MAX_PAGINAS: '1.5',
+      }),
+    ).toThrow(/inteiro positivo/);
+  });
+
+  it('recusa grace period abaixo do pior caso recalculado', () => {
+    expect(() =>
+      validarConfiguracaoExecution({
+        ...baseDev,
+        TERMINATION_GRACE_PERIOD_SECONDS: '720',
+      }),
+    ).toThrow(/TERMINATION_GRACE_PERIOD_SECONDS/);
   });
 
   it('recusa DYNAMODB_ENDPOINT em produção', () => {
@@ -164,7 +192,8 @@ describe('validarConfiguracaoExecution', () => {
         DYNAMODB_MENSAGENS_PROCESSADAS_TABLE: 'proc',
         SQS_VISIBILITY_TIMEOUT_SECONDS: '720',
         OUTBOX_REIVINDICACAO_MS: '480000',
-        TERMINATION_GRACE_PERIOD_SECONDS: '720',
+        TERMINATION_GRACE_PERIOD_SECONDS: '850',
+        OUTBOX_GSI_MAX_PAGINAS: '8',
       }),
     ).toThrow(/DYNAMODB_ENDPOINT/);
   });

@@ -41,7 +41,11 @@ describe('Privacidade de métricas e contexto de tracing', () => {
   it('métricas operacionais da mensageria não carregam PII', () => {
     const metrics = new MetricsService();
     const mensageria = new MessagingMetricsService(metrics, {
-      contarPendentes: async () => 2,
+      contarPendentes: async () => ({
+        quantidade: 2,
+        truncada: false,
+        paginasConsultadas: 1,
+      }),
     } as never);
 
     mensageria.recordErroConsumo('permanente');

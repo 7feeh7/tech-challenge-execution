@@ -43,6 +43,7 @@ describe('Prazos operacionais — evidência no código', () => {
       ),
       'utf-8',
     );
+    expect(consumidor).toContain('beforeApplicationShutdown');
     expect(consumidor).toContain('sinalAbortamento.abort()');
     expect(consumidor).toContain('await this.processar.executar');
     expect(consumidor).toContain('await this.fila.confirmar');

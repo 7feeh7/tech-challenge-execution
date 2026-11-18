@@ -10,12 +10,10 @@ export const LOTE_OUTBOX_PADRAO = 5;
 
 export const TENTATIVAS_PROCESSAR_MENSAGEM = 2;
 export const TENTATIVAS_CONFLITO_TRANSACIONAL = 3;
+/** Leitura + TransactWriteItems por unidade de trabalho com retentativa de conflito. */
+export const OPERACOES_DYNAMODB_POR_UOW_CONFLITO = 2;
 export const AWS_SDK_MAX_ATTEMPTS_PADRAO = 3;
 
-/**
- * Listagem GSI: uma página com `Limit >= max(2*lote, 25)` cobre o lote padrão;
- * o teto evita paginação ilimitada quando o filtro esvazia páginas inteiras.
- */
 export const OUTBOX_GSI_MAX_PAGINAS_PADRAO = 8;
 
 export interface ParametrosPrazosExecution {
@@ -36,7 +34,10 @@ export interface ResultadoPrazosExecution {
   tempoMensagemSucessoMs: number;
   tempoMensagemErroPermanenteMs: number;
   cicloConsumidorPiorCasoMs: number;
+  listagemOutboxPiorCasoMs: number;
+  contagemBacklogPiorCasoMs: number;
   cicloOutboxPiorCasoMs: number;
+  duracaoLeaseOutboxPiorCasoMs: number;
   requisicaoDiagnosticoPiorCasoMs: number;
   shutdownPiorCasoMs: number;
   visibilityTimeoutSecondsMinimo: number;
@@ -48,6 +49,8 @@ export function calcularPrazosOperacionaisExecution(
   params: ParametrosPrazosExecution,
 ): ResultadoPrazosExecution {
   const margem = params.margemMs ?? MARGEM_OPERACIONAL_MS;
+  const paginasGsi =
+    params.outboxGsiMaxPaginas ?? OUTBOX_GSI_MAX_PAGINAS_PADRAO;
 
   const transacoesPorMensagem =
     TENTATIVAS_PROCESSAR_MENSAGEM * TENTATIVAS_CONFLITO_TRANSACIONAL;
@@ -66,24 +69,37 @@ export function calcularPrazosOperacionaisExecution(
 
   const tempoItemOutboxMs =
     params.dynamodbOperationDeadlineMs * 3 + params.sqsOperationDeadlineMs;
-  const paginasGsiPiorCaso = params.outboxGsiMaxPaginas ?? 1;
+
   const listagemOutboxPiorCasoMs =
-    paginasGsiPiorCaso * params.dynamodbOperationDeadlineMs;
+    paginasGsi * params.dynamodbOperationDeadlineMs;
+  const contagemBacklogPiorCasoMs =
+    paginasGsi * params.dynamodbOperationDeadlineMs;
+  const reivindicacaoOutboxPiorCasoMs =
+    params.loteOutbox * params.dynamodbOperationDeadlineMs;
+
   const cicloOutboxPiorCasoMs =
     listagemOutboxPiorCasoMs +
-    params.dynamodbOperationDeadlineMs * 2 +
-    params.loteOutbox * tempoItemOutboxMs;
+    reivindicacaoOutboxPiorCasoMs +
+    params.loteOutbox * tempoItemOutboxMs +
+    contagemBacklogPiorCasoMs;
+
+  const duracaoLeaseOutboxPiorCasoMs = params.loteOutbox * tempoItemOutboxMs;
+
+  const tempoUowDiagnosticoMs =
+    TENTATIVAS_CONFLITO_TRANSACIONAL *
+    OPERACOES_DYNAMODB_POR_UOW_CONFLITO *
+    params.dynamodbOperationDeadlineMs;
 
   const requisicaoDiagnosticoPiorCasoMs =
-    TENTATIVAS_CONFLITO_TRANSACIONAL * params.dynamodbOperationDeadlineMs * 2 +
-    params.osRequestTimeoutMs;
+    tempoUowDiagnosticoMs * 2 + params.osRequestTimeoutMs;
 
-  // Encerramento: consumidor e publicador drenam ciclos em paralelo (onModuleDestroy);
-  // requisição HTTP do diagnóstico pode estar em andamento no mesmo pod.
+  const drenagemMensageriaMs = Math.max(
+    cicloConsumidorPiorCasoMs,
+    cicloOutboxPiorCasoMs,
+  );
+
   const shutdownPiorCasoMs =
-    Math.max(cicloConsumidorPiorCasoMs, cicloOutboxPiorCasoMs) +
-    params.osRequestTimeoutMs +
-    margem;
+    drenagemMensageriaMs + requisicaoDiagnosticoPiorCasoMs + margem;
 
   const visibilityTimeoutSecondsMinimo = Math.ceil(
     (cicloConsumidorPiorCasoMs + margem) / 1000,
@@ -93,14 +109,17 @@ export function calcularPrazosOperacionaisExecution(
     shutdownPiorCasoMs / 1000,
   );
 
-  const outboxReivindicacaoMsMinimo = cicloOutboxPiorCasoMs + margem;
+  const outboxReivindicacaoMsMinimo = duracaoLeaseOutboxPiorCasoMs + margem;
 
   return {
     tempoTransacaoPorMensagemMs,
     tempoMensagemSucessoMs,
     tempoMensagemErroPermanenteMs,
     cicloConsumidorPiorCasoMs,
+    listagemOutboxPiorCasoMs,
+    contagemBacklogPiorCasoMs,
     cicloOutboxPiorCasoMs,
+    duracaoLeaseOutboxPiorCasoMs,
     requisicaoDiagnosticoPiorCasoMs,
     shutdownPiorCasoMs,
     visibilityTimeoutSecondsMinimo,

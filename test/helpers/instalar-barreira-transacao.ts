@@ -29,13 +29,13 @@ export function instalarBarreiraTransacao(dynamo: DynamoDbClientProvider): {
   };
 }
 
-export async function executarComBarreiraTransacao(
+export async function executarComBarreiraTransacao<T>(
   dynamo: DynamoDbClientProvider,
-  operacoes: Array<() => Promise<unknown>>,
-): Promise<void> {
+  operacoes: Array<() => Promise<T>>,
+): Promise<PromiseSettledResult<T>[]> {
   const { restaurar } = instalarBarreiraTransacao(dynamo);
   try {
-    await Promise.allSettled(operacoes.map((op) => op()));
+    return await Promise.allSettled(operacoes.map((op) => op()));
   } finally {
     restaurar();
   }

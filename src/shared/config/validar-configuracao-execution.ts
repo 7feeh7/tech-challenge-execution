@@ -2,6 +2,7 @@ import {
   calcularPrazosOperacionaisExecution,
   LOTE_CONSUMIDOR_PADRAO,
   LOTE_OUTBOX_PADRAO,
+  OUTBOX_GSI_MAX_PAGINAS_PADRAO,
 } from '@/shared/messaging/application/calcular-prazos-operacionais-execution';
 import { ConfiguracaoExecutionInvalidaError } from './configuracao-execution-invalida.error';
 
@@ -18,15 +19,32 @@ function texto(
   return bruto && bruto.length > 0 ? bruto : padrao;
 }
 
-function numero(
+function numeroInteiroPositivo(
   ambiente: AmbienteConfiguracao,
   chave: string,
-  padrao: number,
+  padrao?: number,
 ): number {
   const bruto = ambiente[chave]?.trim();
-  if (!bruto) return padrao;
+  if (!bruto) {
+    if (padrao === undefined) {
+      throw new ConfiguracaoExecutionInvalidaError(
+        `${chave}: variável ausente ou vazia.`,
+      );
+    }
+    return padrao;
+  }
+  if (!/^\d+$/.test(bruto)) {
+    throw new ConfiguracaoExecutionInvalidaError(
+      `${chave} deve ser inteiro positivo (recebido: valor inválido).`,
+    );
+  }
   const convertido = Number(bruto);
-  return Number.isNaN(convertido) ? padrao : convertido;
+  if (convertido <= 0) {
+    throw new ConfiguracaoExecutionInvalidaError(
+      `${chave} deve ser maior que zero (recebido: ${convertido}).`,
+    );
+  }
+  return convertido;
 }
 
 function exigirPreenchido(
@@ -73,36 +91,63 @@ function validarFlagTriState(
 }
 
 function validarCoerenciaPrazos(ambiente: AmbienteConfiguracao): void {
+  const outboxGsiMaxPaginas = numeroInteiroPositivo(
+    ambiente,
+    'OUTBOX_GSI_MAX_PAGINAS',
+    OUTBOX_GSI_MAX_PAGINAS_PADRAO,
+  );
+
   const prazos = calcularPrazosOperacionaisExecution({
-    dynamodbOperationDeadlineMs: numero(
+    dynamodbOperationDeadlineMs: numeroInteiroPositivo(
       ambiente,
       'DYNAMODB_OPERATION_DEADLINE_MS',
       12_000,
     ),
-    sqsOperationDeadlineMs: numero(
+    sqsOperationDeadlineMs: numeroInteiroPositivo(
       ambiente,
       'SQS_OPERATION_DEADLINE_MS',
       45_000,
     ),
-    sqsLongPollSeconds: numero(ambiente, 'SQS_LONG_POLL_SECONDS', 10),
-    osRequestTimeoutMs: numero(ambiente, 'OS_REQUEST_TIMEOUT_MS', 3_000),
-    loteConsumidor: numero(
+    sqsLongPollSeconds: numeroInteiroPositivo(
+      ambiente,
+      'SQS_LONG_POLL_SECONDS',
+      10,
+    ),
+    osRequestTimeoutMs: numeroInteiroPositivo(
+      ambiente,
+      'OS_REQUEST_TIMEOUT_MS',
+      3_000,
+    ),
+    loteConsumidor: numeroInteiroPositivo(
       ambiente,
       'SQS_CONSUMER_LOTE',
       LOTE_CONSUMIDOR_PADRAO,
     ),
-    loteOutbox: numero(ambiente, 'OUTBOX_PUBLISHER_LOTE', LOTE_OUTBOX_PADRAO),
-    outboxReivindicacaoMs: numero(ambiente, 'OUTBOX_REIVINDICACAO_MS', 450_000),
+    loteOutbox: numeroInteiroPositivo(
+      ambiente,
+      'OUTBOX_PUBLISHER_LOTE',
+      LOTE_OUTBOX_PADRAO,
+    ),
+    outboxGsiMaxPaginas,
+    outboxReivindicacaoMs: numeroInteiroPositivo(
+      ambiente,
+      'OUTBOX_REIVINDICACAO_MS',
+      450_000,
+    ),
   });
 
-  const reivindicacaoMs = numero(ambiente, 'OUTBOX_REIVINDICACAO_MS', 450_000);
+  const reivindicacaoMs = numeroInteiroPositivo(
+    ambiente,
+    'OUTBOX_REIVINDICACAO_MS',
+    450_000,
+  );
   if (reivindicacaoMs < prazos.outboxReivindicacaoMsMinimo) {
     throw new ConfiguracaoExecutionInvalidaError(
-      `OUTBOX_REIVINDICACAO_MS (${reivindicacaoMs}) menor que o pior caso do lote (${prazos.outboxReivindicacaoMsMinimo}).`,
+      `OUTBOX_REIVINDICACAO_MS (${reivindicacaoMs}) menor que o pior caso do lease (${prazos.outboxReivindicacaoMsMinimo}).`,
     );
   }
 
-  const visibilitySeconds = numero(
+  const visibilitySeconds = numeroInteiroPositivo(
     ambiente,
     'SQS_VISIBILITY_TIMEOUT_SECONDS',
     prazos.visibilityTimeoutSecondsMinimo,
@@ -113,18 +158,32 @@ function validarCoerenciaPrazos(ambiente: AmbienteConfiguracao): void {
     );
   }
 
-  const grace = numero(ambiente, 'TERMINATION_GRACE_PERIOD_SECONDS', 600);
+  const grace = numeroInteiroPositivo(
+    ambiente,
+    'TERMINATION_GRACE_PERIOD_SECONDS',
+    600,
+  );
   if (grace < prazos.terminationGracePeriodSecondsMinimo) {
     throw new ConfiguracaoExecutionInvalidaError(
       `TERMINATION_GRACE_PERIOD_SECONDS (${grace}) menor que o pior caso de encerramento (${prazos.terminationGracePeriodSecondsMinimo}).`,
     );
   }
 
-  const sqsPoll = numero(ambiente, 'SQS_LONG_POLL_SECONDS', 10);
-  const sqsDeadline = numero(ambiente, 'SQS_OPERATION_DEADLINE_MS', 45_000);
+  const sqsPoll = numeroInteiroPositivo(ambiente, 'SQS_LONG_POLL_SECONDS', 10);
+  const sqsDeadline = numeroInteiroPositivo(
+    ambiente,
+    'SQS_OPERATION_DEADLINE_MS',
+    45_000,
+  );
   if (sqsDeadline < sqsPoll * 1000) {
     throw new ConfiguracaoExecutionInvalidaError(
       `SQS_OPERATION_DEADLINE_MS (${sqsDeadline}) deve cobrir o long polling (${sqsPoll}s).`,
+    );
+  }
+
+  if (outboxGsiMaxPaginas < 1) {
+    throw new ConfiguracaoExecutionInvalidaError(
+      'OUTBOX_GSI_MAX_PAGINAS deve ser maior que zero.',
     );
   }
 }

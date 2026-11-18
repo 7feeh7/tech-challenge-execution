@@ -76,7 +76,7 @@ describe('ConsumidorFilaExecutionService', () => {
       criarMessagingMetricsFake(),
     );
     service.onModuleInit();
-    await service.onModuleDestroy();
+    await service.beforeApplicationShutdown();
   });
 
   it('não inicia poller quando desabilitado', () => {
@@ -175,7 +175,7 @@ describe('ConsumidorFilaExecutionService', () => {
       criarMessagingMetricsFake(),
     );
     service.onModuleInit();
-    await service.onModuleDestroy();
+    await service.beforeApplicationShutdown();
     const sinal = (service as unknown as { sinalAbortamento: AbortController })
       .sinalAbortamento.signal;
     expect(sinal.aborted).toBe(true);
@@ -208,7 +208,7 @@ describe('ConsumidorFilaExecutionService', () => {
     service.onModuleInit();
     await new Promise((r) => setTimeout(r, 25));
     const antes = ciclos;
-    await service.onModuleDestroy();
+    await service.beforeApplicationShutdown();
     await new Promise((r) => setTimeout(r, 40));
     expect(ciclos).toBe(antes);
   });

@@ -24,7 +24,7 @@ describe('PublicadorOutboxService', () => {
     );
     service.onModuleInit();
     expect((service as { agendador?: unknown }).agendador).toBeDefined();
-    return service.onModuleDestroy();
+    return service.beforeApplicationShutdown();
   });
 
   it('não agenda publicação quando desabilitado', () => {
@@ -64,7 +64,11 @@ describe('PublicadorOutboxService', () => {
           tokenReivindicacao: token,
         })),
       confirmarEnvio: jest.fn().mockResolvedValue(true),
-      contarPendentes: jest.fn().mockResolvedValue(0),
+      contarPendentes: jest.fn().mockResolvedValue({
+        quantidade: 0,
+        truncada: false,
+        paginasConsultadas: 1,
+      }),
     };
     const config = {
       get: jest.fn((k: string) => {
@@ -219,7 +223,11 @@ describe('PublicadorOutboxService', () => {
           tokenReivindicacao: token,
         })),
       liberarAposFalha: liberar,
-      contarPendentes: jest.fn().mockResolvedValue(1),
+      contarPendentes: jest.fn().mockResolvedValue({
+        quantidade: 1,
+        truncada: false,
+        paginasConsultadas: 1,
+      }),
     };
     const config = {
       get: jest.fn(() => '1000'),

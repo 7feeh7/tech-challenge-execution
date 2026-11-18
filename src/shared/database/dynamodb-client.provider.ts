@@ -1,14 +1,15 @@
 import type { DynamoDBClientConfig } from '@aws-sdk/client-dynamodb';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { Injectable, type OnModuleDestroy } from '@nestjs/common';
+import { Injectable, type OnApplicationShutdown } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { criarOpcoesClienteDynamodb } from '@/shared/aws/config-cliente-dynamodb-aws';
 import { criarSinalOperacaoAws } from '@/shared/messaging/infra/aws/sinal-operacao-aws';
 
 @Injectable()
-export class DynamoDbClientProvider implements OnModuleDestroy {
+export class DynamoDbClientProvider implements OnApplicationShutdown {
   readonly client: DynamoDBClient;
   readonly operationDeadlineMs: number;
+  private encerrado = false;
 
   constructor(config: ConfigService) {
     const opcoes = criarOpcoesClienteDynamodb(config);
@@ -48,7 +49,9 @@ export class DynamoDbClientProvider implements OnModuleDestroy {
     }
   }
 
-  onModuleDestroy(): void {
+  onApplicationShutdown(): void {
+    if (this.encerrado) return;
+    this.encerrado = true;
     this.client.destroy();
   }
 }
