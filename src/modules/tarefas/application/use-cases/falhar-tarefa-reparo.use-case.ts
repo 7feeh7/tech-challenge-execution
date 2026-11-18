@@ -14,7 +14,7 @@ import { TipoTarefa } from '../../domain/tipo-tarefa.enum';
 import { validarExecucaoReparo } from '../../domain/validar-execucao-reparo';
 import {
   type TarefaOutput,
-  TarefaOutputMapper,
+  toTarefaOutput,
 } from '../mappers/tarefa-output.mapper';
 import type { TarefaGateway } from '../ports/tarefa.gateway';
 import { registrarEventoTarefa } from '../registrar-evento-tarefa';
@@ -52,10 +52,10 @@ export class FalharTarefaReparoUseCase {
           );
         }
         if (tarefa.situacao === SituacaoTarefa.FALHOU) {
-          return TarefaOutputMapper.toOutput(tarefa);
+          return toTarefaOutput(tarefa);
         }
         if (tarefa.situacao === SituacaoTarefa.CONCLUIDA) {
-          return TarefaOutputMapper.toOutput(tarefa);
+          return toTarefaOutput(tarefa);
         }
 
         const validada = validarExecucaoReparo(
@@ -97,7 +97,7 @@ export class FalharTarefaReparoUseCase {
           agora,
           fatoTerminalEventId,
         );
-        return TarefaOutputMapper.toOutput(tarefa);
+        return toTarefaOutput(tarefa);
       }),
     );
   }

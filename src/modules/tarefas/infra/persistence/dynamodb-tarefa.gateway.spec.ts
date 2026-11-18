@@ -6,7 +6,7 @@ import { Tarefa } from '../../domain/entities/tarefa.entity';
 import { CursorTarefasInvalidoError } from '../../domain/errors/tarefa.errors';
 import { TipoTarefa } from '../../domain/tipo-tarefa.enum';
 import { DynamoDbTarefaGateway } from './dynamodb-tarefa.gateway';
-import { DynamoDbTarefaMapper } from './dynamodb-tarefa.mapper';
+import { tarefaToDomain, tarefaToItem } from './dynamodb-tarefa.mapper';
 
 describe('DynamoDbTarefaGateway', () => {
   const tabelas = {
@@ -29,16 +29,15 @@ describe('DynamoDbTarefaGateway', () => {
     itensOficiais: [],
     criadoEm: new Date('2026-11-15T10:00:00.000Z'),
   });
-  const itemDynamo = marshall(
-    DynamoDbTarefaMapper.toItem(tarefa) as Record<string, unknown>,
-    { removeUndefinedValues: true },
-  );
+  const itemDynamo = marshall(tarefaToItem(tarefa) as Record<string, unknown>, {
+    removeUndefinedValues: true,
+  });
 
   beforeEach(() => {
     send = jest.fn();
-    const provider = { client: { send } } as unknown as DynamoDbClientProvider;
+    const provider = { enviar: send } as unknown as DynamoDbClientProvider;
     gateway = new DynamoDbTarefaGateway(provider, tabelas);
-    contexto = new DynamoDbContextoTransacao(provider.client, tabelas);
+    contexto = new DynamoDbContextoTransacao(provider, tabelas);
   });
 
   it('cria com escrita condicional na chave da tarefa', async () => {
@@ -62,15 +61,15 @@ describe('DynamoDbTarefaGateway', () => {
   });
 
   it('só tarefas pendentes carregam os atributos do índice da fila', async () => {
-    const pendente = DynamoDbTarefaMapper.toItem(tarefa);
+    const pendente = tarefaToItem(tarefa);
     expect(pendente.indiceFila).toBe('DIAGNOSTICO#PENDENTE');
     expect(pendente.indiceFilaOrdem).toBe(
       '2026-11-15T10:00:00.000Z#os-1#1#DIAGNOSTICO',
     );
 
-    const iniciada = DynamoDbTarefaMapper.toDomain(unmarshall(itemDynamo));
+    const iniciada = tarefaToDomain(unmarshall(itemDynamo));
     iniciada.iniciar('mec-1', new Date('2026-11-15T11:00:00.000Z'));
-    const emAndamento = DynamoDbTarefaMapper.toItem(iniciada);
+    const emAndamento = tarefaToItem(iniciada);
     expect(emAndamento.indiceFila).toBeUndefined();
     expect(emAndamento.indiceFilaOrdem).toBeUndefined();
     expect(emAndamento.responsavelId).toBe('mec-1');

@@ -89,7 +89,7 @@ describe('PublicadorOutboxService', () => {
 
   it('libera outbox após destino desconhecido na publicação', async () => {
     const fila = { enviar: jest.fn().mockResolvedValue(undefined) };
-    const liberar = jest.fn().mockResolvedValue(undefined);
+    const liberar = jest.fn().mockResolvedValue(true);
     const service = new PublicadorOutboxService(
       {
         get: jest.fn(() => '1000'),
@@ -164,6 +164,39 @@ describe('PublicadorOutboxService', () => {
     );
   });
 
+  it('registra fencing quando liberação perde posse', async () => {
+    const fila = {
+      enviar: jest.fn().mockRejectedValue(new Error('sqs indisponível')),
+    };
+    const liberar = jest.fn().mockResolvedValue(false);
+    const logger = criarJsonLoggerMensageriaFake();
+    const mensagem = {
+      eventId: 'e-fence',
+      destino: DESTINO_FILA_OS,
+      envelope: { eventId: 'e-fence' },
+      correlationId: 'c',
+      tokenReivindicacao: 'token-f',
+      tentativas: 0,
+    };
+    const service = new PublicadorOutboxService(
+      {
+        get: jest.fn(() => '1000'),
+        getOrThrow: jest.fn().mockReturnValue('https://sqs/os-in'),
+      } as unknown as ConfigService,
+      { liberarAposFalha: liberar } as never,
+      fila as never,
+      logger,
+      criarMessagingMetricsFake(),
+    );
+    await service.publicarMensagemReivindicada(mensagem);
+    expect(logger.logWithMeta).toHaveBeenCalledWith(
+      'warn',
+      'outbox.liberacao.fencing',
+      expect.objectContaining({ eventId: 'e-fence' }),
+      'OutboxPublicador',
+    );
+  });
+
   it('libera registro após falha de publicação', async () => {
     const fila = {
       enviar: jest.fn().mockRejectedValue(new Error('sqs indisponível')),
@@ -176,7 +209,7 @@ describe('PublicadorOutboxService', () => {
       tokenReivindicacao: 'token-2',
       tentativas: 0,
     };
-    const liberar = jest.fn().mockResolvedValue(undefined);
+    const liberar = jest.fn().mockResolvedValue(true);
     const repo: Partial<DynamoDbOutboxRepositorio> = {
       listarCandidatasPendentes: jest.fn().mockResolvedValue(['e2']),
       reivindicar: jest

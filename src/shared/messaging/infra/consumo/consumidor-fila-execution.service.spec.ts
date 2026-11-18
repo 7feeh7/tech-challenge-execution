@@ -155,6 +155,64 @@ describe('ConsumidorFilaExecutionService', () => {
     expect(confirmar).toHaveBeenCalled();
   });
 
+  it('sinaliza abortamento ao destruir o módulo', async () => {
+    const config = {
+      get: jest.fn((k: string) => {
+        if (k === 'SQS_CONSUMER_HABILITADO') return 'true';
+        if (k === 'SQS_EXECUTION_IN_URL') return 'https://sqs.local/in';
+        return '1';
+      }),
+    } as unknown as ConfigService;
+    const service = new ConsumidorFilaExecutionService(
+      config,
+      {
+        receber: jest.fn().mockResolvedValue([]),
+        confirmar: jest.fn(),
+        enviar: jest.fn(),
+        enviarCorpoBruto: jest.fn(),
+      },
+      { executar: jest.fn() } as never,
+      criarMessagingMetricsFake(),
+    );
+    service.onModuleInit();
+    await service.onModuleDestroy();
+    const sinal = (service as unknown as { sinalAbortamento: AbortController })
+      .sinalAbortamento.signal;
+    expect(sinal.aborted).toBe(true);
+  });
+
+  it('não agenda novo ciclo após parar o agendador', async () => {
+    let ciclos = 0;
+    const config = {
+      get: jest.fn((k: string) => {
+        if (k === 'SQS_CONSUMER_HABILITADO') return 'true';
+        if (k === 'SQS_EXECUTION_IN_URL') return 'https://sqs.local/in';
+        if (k === 'SQS_CONSUMER_INTERVAL_MS') return '5';
+        return '1';
+      }),
+    } as unknown as ConfigService;
+    const service = new ConsumidorFilaExecutionService(
+      config,
+      {
+        receber: jest.fn().mockImplementation(async () => {
+          ciclos += 1;
+          return [];
+        }),
+        confirmar: jest.fn(),
+        enviar: jest.fn(),
+        enviarCorpoBruto: jest.fn(),
+      },
+      { executar: jest.fn().mockResolvedValue(undefined) } as never,
+      criarMessagingMetricsFake(),
+    );
+    service.onModuleInit();
+    await new Promise((r) => setTimeout(r, 25));
+    const antes = ciclos;
+    await service.onModuleDestroy();
+    await new Promise((r) => setTimeout(r, 40));
+    expect(ciclos).toBe(antes);
+  });
+
   it('não confirma quando encaminhamento à DLQ falha', async () => {
     const config = {
       get: jest.fn((k: string) => {

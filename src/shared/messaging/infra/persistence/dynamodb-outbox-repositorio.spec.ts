@@ -1,36 +1,39 @@
+import { ConfigService } from '@nestjs/config';
 import { DynamoDbClientProvider } from '@/shared/database/dynamodb-client.provider';
 import { DynamoDbTabelasService } from '@/shared/database/dynamodb-tabelas.config';
 import { DynamoDbOutboxRepositorio } from './dynamodb-outbox-repositorio';
 
+const configVazio = {
+  get: jest.fn(() => undefined),
+} as unknown as ConfigService;
+
 describe('DynamoDbOutboxRepositorio', () => {
   it('lista candidatas e confirma envio com sucesso', async () => {
     const provider = {
-      client: {
-        send: jest
-          .fn()
-          .mockResolvedValueOnce({
-            Items: [
-              {
-                eventId: { S: 'e1' },
-                criadoEm: { S: '2026-01-01T00:00:00.000Z' },
-              },
-            ],
-          })
-          .mockResolvedValueOnce({
-            Attributes: {
+      enviar: jest
+        .fn()
+        .mockResolvedValueOnce({
+          Items: [
+            {
               eventId: { S: 'e1' },
-              destino: { S: 'os-in' },
-              envelope: { S: '{}' },
-              correlationId: { S: 'c' },
-              tokenReivindicacao: { S: 't' },
-              tentativas: { N: '0' },
+              criadoEm: { S: '2026-01-01T00:00:00.000Z' },
             },
-          })
-          .mockResolvedValue({}),
-      },
+          ],
+        })
+        .mockResolvedValueOnce({
+          Attributes: {
+            eventId: { S: 'e1' },
+            destino: { S: 'os-in' },
+            envelope: { S: '{}' },
+            correlationId: { S: 'c' },
+            tokenReivindicacao: { S: 't' },
+            tentativas: { N: '0' },
+          },
+        })
+        .mockResolvedValue({}),
     } as unknown as DynamoDbClientProvider;
     const tabelas = { outbox: 'outbox' } as DynamoDbTabelasService;
-    const repo = new DynamoDbOutboxRepositorio(provider, tabelas);
+    const repo = new DynamoDbOutboxRepositorio(provider, tabelas, configVazio);
     const candidatas = await repo.listarCandidatasPendentes(5);
     expect(candidatas).toContain('e1');
     const reivindicada = await repo.reivindicar(
@@ -46,14 +49,12 @@ describe('DynamoDbOutboxRepositorio', () => {
 
   it('retorna null quando reivindicação perde condição', async () => {
     const provider = {
-      client: {
-        send: jest.fn().mockRejectedValue({
-          name: 'ConditionalCheckFailedException',
-        }),
-      },
+      enviar: jest.fn().mockRejectedValue({
+        name: 'ConditionalCheckFailedException',
+      }),
     } as unknown as DynamoDbClientProvider;
     const tabelas = { outbox: 'outbox' } as DynamoDbTabelasService;
-    const repo = new DynamoDbOutboxRepositorio(provider, tabelas);
+    const repo = new DynamoDbOutboxRepositorio(provider, tabelas, configVazio);
     await expect(
       repo.reivindicar('e1', 'token', new Date().toISOString()),
     ).resolves.toBeNull();
@@ -61,12 +62,10 @@ describe('DynamoDbOutboxRepositorio', () => {
 
   it('propaga erro inesperado na reivindicação', async () => {
     const provider = {
-      client: {
-        send: jest.fn().mockRejectedValue(new Error('dynamodb offline')),
-      },
+      enviar: jest.fn().mockRejectedValue(new Error('dynamodb offline')),
     } as unknown as DynamoDbClientProvider;
     const tabelas = { outbox: 'outbox' } as DynamoDbTabelasService;
-    const repo = new DynamoDbOutboxRepositorio(provider, tabelas);
+    const repo = new DynamoDbOutboxRepositorio(provider, tabelas, configVazio);
     await expect(
       repo.reivindicar('e1', 'token', new Date().toISOString()),
     ).rejects.toThrow('dynamodb offline');
@@ -74,14 +73,12 @@ describe('DynamoDbOutboxRepositorio', () => {
 
   it('retorna false ao confirmar com token inválido', async () => {
     const provider = {
-      client: {
-        send: jest.fn().mockRejectedValue({
-          name: 'ConditionalCheckFailedException',
-        }),
-      },
+      enviar: jest.fn().mockRejectedValue({
+        name: 'ConditionalCheckFailedException',
+      }),
     } as unknown as DynamoDbClientProvider;
     const tabelas = { outbox: 'outbox' } as DynamoDbTabelasService;
-    const repo = new DynamoDbOutboxRepositorio(provider, tabelas);
+    const repo = new DynamoDbOutboxRepositorio(provider, tabelas, configVazio);
     await expect(repo.confirmarEnvio('e1', 'token')).resolves.toBe(false);
   });
 });

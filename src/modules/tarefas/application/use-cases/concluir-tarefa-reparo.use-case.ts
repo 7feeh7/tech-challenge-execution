@@ -13,7 +13,7 @@ import { TipoTarefa } from '../../domain/tipo-tarefa.enum';
 import { validarExecucaoReparo } from '../../domain/validar-execucao-reparo';
 import {
   type TarefaOutput,
-  TarefaOutputMapper,
+  toTarefaOutput,
 } from '../mappers/tarefa-output.mapper';
 import type { TarefaGateway } from '../ports/tarefa.gateway';
 import { registrarEventoTarefa } from '../registrar-evento-tarefa';
@@ -47,7 +47,7 @@ export class ConcluirTarefaReparoUseCase {
           throw new TarefaTipoInvalidoError('concluir reparo', tarefa.tipo);
         }
         if (tarefa.estaEncerradaReparo()) {
-          return TarefaOutputMapper.toOutput(tarefa);
+          return toTarefaOutput(tarefa);
         }
 
         const validada = validarExecucaoReparo(
@@ -88,7 +88,7 @@ export class ConcluirTarefaReparoUseCase {
           agora,
           fatoTerminalEventId,
         );
-        return TarefaOutputMapper.toOutput(tarefa);
+        return toTarefaOutput(tarefa);
       }),
     );
   }

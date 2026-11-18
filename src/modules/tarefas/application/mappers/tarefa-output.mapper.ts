@@ -33,31 +33,29 @@ export interface TarefaOutput {
   concluidaEm: string | null;
 }
 
-export class TarefaOutputMapper {
-  static toOutput(this: void, tarefa: Tarefa): TarefaOutput {
-    return {
-      id: tarefa.id,
-      tipo: tarefa.tipo,
-      ordemServicoId: tarefa.ordemServicoId,
-      rodada: tarefa.rodada,
-      situacao: tarefa.situacao,
-      responsavelId: tarefa.responsavelId,
-      veiculo: tarefa.veiculo,
-      descricaoProblema: tarefa.descricaoProblema,
-      sugestoes: tarefa.sugestoes,
-      itensOficiais: tarefa.itensOficiais,
-      conclusaoPendente: tarefa.conclusaoPendente,
-      laudo: tarefa.laudo,
-      propostaItens: tarefa.propostaItens,
-      servicosRealizados: tarefa.servicosRealizados,
-      pecasUtilizadas: tarefa.pecasUtilizadas,
-      divergencias: tarefa.divergencias,
-      motivoFalha: tarefa.motivoFalha,
-      falhouEm: tarefa.falhouEm?.toISOString() ?? null,
-      criadoEm: tarefa.criadoEm.toISOString(),
-      iniciadoEm: tarefa.iniciadoEm?.toISOString() ?? null,
-      devolvidaEm: tarefa.devolvidaEm?.toISOString() ?? null,
-      concluidaEm: tarefa.concluidaEm?.toISOString() ?? null,
-    };
-  }
+export function toTarefaOutput(tarefa: Tarefa): TarefaOutput {
+  return {
+    id: tarefa.id,
+    tipo: tarefa.tipo,
+    ordemServicoId: tarefa.ordemServicoId,
+    rodada: tarefa.rodada,
+    situacao: tarefa.situacao,
+    responsavelId: tarefa.responsavelId,
+    veiculo: tarefa.veiculo,
+    descricaoProblema: tarefa.descricaoProblema,
+    sugestoes: tarefa.sugestoes,
+    itensOficiais: tarefa.itensOficiais,
+    conclusaoPendente: tarefa.conclusaoPendente,
+    laudo: tarefa.laudo,
+    propostaItens: tarefa.propostaItens,
+    servicosRealizados: tarefa.servicosRealizados,
+    pecasUtilizadas: tarefa.pecasUtilizadas,
+    divergencias: tarefa.divergencias,
+    motivoFalha: tarefa.motivoFalha,
+    falhouEm: tarefa.falhouEm?.toISOString() ?? null,
+    criadoEm: tarefa.criadoEm.toISOString(),
+    iniciadoEm: tarefa.iniciadoEm?.toISOString() ?? null,
+    devolvidaEm: tarefa.devolvidaEm?.toISOString() ?? null,
+    concluidaEm: tarefa.concluidaEm?.toISOString() ?? null,
+  };
 }

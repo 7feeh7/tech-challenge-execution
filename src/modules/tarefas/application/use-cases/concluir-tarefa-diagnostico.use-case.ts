@@ -17,7 +17,7 @@ import { SituacaoTarefa } from '../../domain/situacao-tarefa.enum';
 import { TipoTarefa } from '../../domain/tipo-tarefa.enum';
 import {
   type TarefaOutput,
-  TarefaOutputMapper,
+  toTarefaOutput,
 } from '../mappers/tarefa-output.mapper';
 import type {
   ConclusaoDiagnosticoOsGateway,
@@ -138,7 +138,7 @@ export class ConcluirTarefaDiagnosticoUseCase {
           tarefa.concluir(this.agora());
           await this.tarefas.salvar(contexto, tarefa);
         }
-        return { tarefa: TarefaOutputMapper.toOutput(tarefa), itensOficiais };
+        return { tarefa: toTarefaOutput(tarefa), itensOficiais };
       }),
     );
   }

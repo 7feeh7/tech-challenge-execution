@@ -1,4 +1,9 @@
-import { GetItemCommand, QueryCommand } from '@aws-sdk/client-dynamodb';
+import {
+  GetItemCommand,
+  type GetItemCommandOutput,
+  QueryCommand,
+  type QueryCommandOutput,
+} from '@aws-sdk/client-dynamodb';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import { Injectable } from '@nestjs/common';
 import type {
@@ -23,7 +28,11 @@ import type {
 import type { Tarefa } from '../../domain/entities/tarefa.entity';
 import { CursorTarefasInvalidoError } from '../../domain/errors/tarefa.errors';
 import { TIPO_REGISTRO_MARCADOR_BLOQUEIO } from '../../domain/marcador-bloqueio';
-import { DynamoDbTarefaMapper } from './dynamodb-tarefa.mapper';
+import {
+  ehTarefa,
+  tarefaToDomain,
+  tarefaToItem,
+} from './dynamodb-tarefa.mapper';
 
 @Injectable()
 export class DynamoDbTarefaGateway
@@ -42,8 +51,8 @@ export class DynamoDbTarefaGateway
     const registro = await ctx.obterRegistro(ctx.nomeTabelaTarefas(), {
       pk: id,
     });
-    if (!registro || !DynamoDbTarefaMapper.ehTarefa(registro)) return null;
-    return DynamoDbTarefaMapper.toDomain(registro);
+    if (!registro || !ehTarefa(registro)) return null;
+    return tarefaToDomain(registro);
   }
 
   async existeRegistro(
@@ -93,7 +102,7 @@ export class DynamoDbTarefaGateway
     ctx.adicionarEscrita({
       Put: {
         TableName: ctx.nomeTabelaTarefas(),
-        Item: marshall(DynamoDbTarefaMapper.toItem(tarefa), {
+        Item: marshall(tarefaToItem(tarefa), {
           removeUndefinedValues: true,
         }),
         ConditionExpression: 'attribute_not_exists(pk)',
@@ -106,7 +115,7 @@ export class DynamoDbTarefaGateway
     ctx.adicionarEscrita({
       Put: {
         TableName: ctx.nomeTabelaTarefas(),
-        Item: marshall(DynamoDbTarefaMapper.toItem(tarefa), {
+        Item: marshall(tarefaToItem(tarefa), {
           removeUndefinedValues: true,
         }),
         ConditionExpression: 'versao = :versaoLida',
@@ -116,7 +125,7 @@ export class DynamoDbTarefaGateway
   }
 
   async consultarPorId(id: string): Promise<Tarefa | null> {
-    const resposta = await this.dynamo.client.send(
+    const resposta = await this.dynamo.enviar<GetItemCommandOutput>(
       new GetItemCommand({
         TableName: this.tabelas.tarefas,
         Key: marshall({ pk: id }),
@@ -125,13 +134,11 @@ export class DynamoDbTarefaGateway
     );
     if (!resposta.Item) return null;
     const registro = unmarshall(resposta.Item);
-    return DynamoDbTarefaMapper.ehTarefa(registro)
-      ? DynamoDbTarefaMapper.toDomain(registro)
-      : null;
+    return ehTarefa(registro) ? tarefaToDomain(registro) : null;
   }
 
   async listarFila(filtro: FiltroFilaTarefas): Promise<PaginaTarefas> {
-    const resposta = await this.dynamo.client.send(
+    const resposta = await this.dynamo.enviar<QueryCommandOutput>(
       new QueryCommand({
         TableName: this.tabelas.tarefas,
         IndexName: TAREFAS_GSI_FILA,
@@ -149,7 +156,7 @@ export class DynamoDbTarefaGateway
 
     return {
       tarefas: (resposta.Items ?? []).map((item) =>
-        DynamoDbTarefaMapper.toDomain(unmarshall(item)),
+        tarefaToDomain(unmarshall(item)),
       ),
       proximoCursor: resposta.LastEvaluatedKey
         ? codificarCursor(unmarshall(resposta.LastEvaluatedKey))

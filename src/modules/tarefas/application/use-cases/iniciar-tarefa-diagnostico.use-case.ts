@@ -11,7 +11,7 @@ import { SituacaoTarefa } from '../../domain/situacao-tarefa.enum';
 import { TipoTarefa } from '../../domain/tipo-tarefa.enum';
 import {
   type TarefaOutput,
-  TarefaOutputMapper,
+  toTarefaOutput,
 } from '../mappers/tarefa-output.mapper';
 import type { TarefaGateway } from '../ports/tarefa.gateway';
 import { registrarEventoTarefa } from '../registrar-evento-tarefa';
@@ -36,7 +36,7 @@ export class IniciarTarefaDiagnosticoUseCase {
         }
         // Repetição da mesma chamada do mecânico não publica o fato de novo.
         if (tarefa.estaEmAndamentoPor(usuarioId)) {
-          return TarefaOutputMapper.toOutput(tarefa);
+          return toTarefaOutput(tarefa);
         }
         if (tarefa.situacao === SituacaoTarefa.CANCELADA) {
           throw new TarefaSituacaoInvalidaError('iniciar', tarefa.situacao, [
@@ -55,7 +55,7 @@ export class IniciarTarefaDiagnosticoUseCase {
           { tarefaId: tarefa.id, iniciadoEm: agora.toISOString() },
           agora,
         );
-        return TarefaOutputMapper.toOutput(tarefa);
+        return toTarefaOutput(tarefa);
       }),
     );
   }

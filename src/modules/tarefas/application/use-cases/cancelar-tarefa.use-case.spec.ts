@@ -1,10 +1,10 @@
 import type { OutboxGateway } from '@/shared/messaging/application/ports/outbox.gateway';
 import type { EnvelopeMensagem } from '@/shared/messaging/envelope';
 import { EVENTO_RESPOSTA_CANCELAMENTO } from '@/shared/messaging/envelope';
+import { Tarefa } from '../../domain/entities/tarefa.entity';
 import { SituacaoTarefa } from '../../domain/situacao-tarefa.enum';
 import { TipoTarefa } from '../../domain/tipo-tarefa.enum';
 import { CancelarTarefaUseCase } from './cancelar-tarefa.use-case';
-import { Tarefa } from '../../domain/entities/tarefa.entity';
 import { criarTarefaGatewayMock } from './test-doubles';
 
 function comandoBase(): EnvelopeMensagem {
@@ -69,8 +69,9 @@ describe('CancelarTarefaUseCase', () => {
     });
 
     expect(tarefas.gravarMarcadorBloqueio).not.toHaveBeenCalled();
-    const payload = (outbox.registrar.mock.calls[0][1] as { envelope: { payload: unknown } })
-      .envelope.payload as { resultado: string };
+    const payload = (
+      outbox.registrar.mock.calls[0][1] as { envelope: { payload: unknown } }
+    ).envelope.payload as { resultado: string };
     expect(payload.resultado).toBe('CANCELADA_SEM_EXISTIR');
   });
 
@@ -104,8 +105,9 @@ describe('CancelarTarefaUseCase', () => {
     });
 
     expect(tarefa.situacao).toBe(SituacaoTarefa.CANCELADA);
-    const payload = (outbox.registrar.mock.calls[0][1] as { envelope: { payload: unknown } })
-      .envelope.payload as { resultado: string };
+    const payload = (
+      outbox.registrar.mock.calls[0][1] as { envelope: { payload: unknown } }
+    ).envelope.payload as { resultado: string };
     expect(payload.resultado).toBe('CANCELADA_EM_ANDAMENTO');
   });
 
@@ -122,8 +124,9 @@ describe('CancelarTarefaUseCase', () => {
 
     expect(tarefa.situacao).toBe(SituacaoTarefa.CANCELADA);
     expect(tarefas.salvar).toHaveBeenCalled();
-    const payload = (outbox.registrar.mock.calls[0][1] as { envelope: { payload: unknown } })
-      .envelope.payload as { resultado: string };
+    const payload = (
+      outbox.registrar.mock.calls[0][1] as { envelope: { payload: unknown } }
+    ).envelope.payload as { resultado: string };
     expect(payload.resultado).toBe('CANCELADA_SEM_INICIO');
   });
 
@@ -150,8 +153,9 @@ describe('CancelarTarefaUseCase', () => {
     });
 
     expect(tarefa.situacao).toBe(SituacaoTarefa.INTERRUPCAO_SOLICITADA);
-    const payload = (outbox.registrar.mock.calls[0][1] as { envelope: { payload: unknown } })
-      .envelope.payload as { resultado: string };
+    const payload = (
+      outbox.registrar.mock.calls[0][1] as { envelope: { payload: unknown } }
+    ).envelope.payload as { resultado: string };
     expect(payload.resultado).toBe('INTERRUPCAO_SOLICITADA');
   });
 
@@ -168,8 +172,9 @@ describe('CancelarTarefaUseCase', () => {
     });
 
     expect(tarefas.salvar).not.toHaveBeenCalled();
-    const payload = (outbox.registrar.mock.calls[0][1] as { envelope: { payload: unknown } })
-      .envelope.payload as { resultado: string };
+    const payload = (
+      outbox.registrar.mock.calls[0][1] as { envelope: { payload: unknown } }
+    ).envelope.payload as { resultado: string };
     expect(payload.resultado).toBe('JA_ENCERRADA');
   });
 });

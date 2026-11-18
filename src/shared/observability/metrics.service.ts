@@ -1,4 +1,8 @@
 import { Injectable } from '@nestjs/common';
+import { sanitizeString } from './log-sanitizer';
+
+const TAGS_SENSIVEIS =
+  /authorization|jwt|token|justificativa|motivo|sub|responsavel|secret|senha/i;
 
 interface Contador {
   total: number;
@@ -37,7 +41,11 @@ function tagsParaMapa(tags: string[]): Record<string, string> {
   const mapa: Record<string, string> = {};
   for (const tag of tags) {
     const [chave, ...resto] = tag.split(':');
-    if (chave) mapa[chave] = resto.join(':');
+    if (!chave) continue;
+    const valor = resto.join(':');
+    mapa[chave] = TAGS_SENSIVEIS.test(chave)
+      ? '[redacted]'
+      : sanitizeString(valor);
   }
   return mapa;
 }

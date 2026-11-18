@@ -153,12 +153,20 @@ export class PublicadorOutboxService implements OnModuleInit, OnModuleDestroy {
         this.retentativaBaseMs,
         this.retentativaTetoMs,
       ).toISOString();
-      await this.outboxRepo.liberarAposFalha(
+      const liberado = await this.outboxRepo.liberarAposFalha(
         mensagem.eventId,
         token,
         bloqueadoAte,
         novasTentativas,
       );
+      if (!liberado) {
+        this.jsonLogger.logWithMeta(
+          'warn',
+          'outbox.liberacao.fencing',
+          { eventId: mensagem.eventId },
+          'OutboxPublicador',
+        );
+      }
     }
   }
 

@@ -11,6 +11,25 @@ export interface RespostaOsDouble {
   status: number;
   corpo?: unknown;
   atrasoMs?: number;
+  aguardarLiberacao?: () => Promise<void>;
+}
+
+export function criarRespostaOsBloqueada(
+  resposta: Omit<RespostaOsDouble, 'aguardarLiberacao'>,
+): { enfileirar: (os: OsHttpDouble) => void; liberar: () => void } {
+  let liberar!: () => void;
+  const porta = new Promise<void>((resolve) => {
+    liberar = resolve;
+  });
+  return {
+    enfileirar: (os) => {
+      os.enfileirarResposta({
+        ...resposta,
+        aguardarLiberacao: () => porta,
+      });
+    },
+    liberar,
+  };
 }
 
 export interface RequisicaoOsRecebida {
@@ -72,7 +91,9 @@ export class OsHttpDouble {
     });
 
     const resposta = this.respostas.shift() ?? this.respostaPadrao;
-    if (resposta.atrasoMs) {
+    if (resposta.aguardarLiberacao) {
+      await resposta.aguardarLiberacao();
+    } else if (resposta.atrasoMs) {
       await new Promise((resolve) => setTimeout(resolve, resposta.atrasoMs));
     }
     if (res.destroyed) return;

@@ -27,7 +27,7 @@ describe('DynamoDbUnitOfWork', () => {
 
   it('aceita transações concorrentes de fluxos independentes no mesmo singleton', async () => {
     const provider = {
-      client: { send: jest.fn() },
+      enviar: jest.fn(),
     } as unknown as DynamoDbClientProvider;
     const uow = new DynamoDbUnitOfWork(
       provider,
@@ -46,18 +46,18 @@ describe('DynamoDbUnitOfWork', () => {
   });
 
   it('não envia transação quando não há escritas', async () => {
-    const send = jest.fn();
-    const provider = { client: { send } } as unknown as DynamoDbClientProvider;
+    const enviar = jest.fn();
+    const provider = { enviar } as unknown as DynamoDbClientProvider;
     const tabelas = new DynamoDbTabelasService(config);
     const uow = new DynamoDbUnitOfWork(provider, tabelas);
     await uow.executar(async () => undefined);
-    expect(send).not.toHaveBeenCalled();
+    expect(enviar).not.toHaveBeenCalled();
   });
 
   it('confirma transação com itens pendentes', async () => {
-    const send = jest.fn().mockResolvedValue({});
+    const enviar = jest.fn().mockResolvedValue({});
     const provider = {
-      client: { send },
+      enviar,
     } as unknown as DynamoDbClientProvider;
     const tabelas = new DynamoDbTabelasService(config);
     const uow = new DynamoDbUnitOfWork(provider, tabelas);
@@ -67,12 +67,12 @@ describe('DynamoDbUnitOfWork', () => {
         Put: { TableName: 'tabela', Item: { pk: { S: '1' } } },
       });
     });
-    expect(send).toHaveBeenCalled();
+    expect(enviar).toHaveBeenCalled();
   });
 
   it('rejeita transação acima de 100 itens sem gravar', async () => {
-    const send = jest.fn().mockResolvedValue({});
-    const provider = { client: { send } } as unknown as DynamoDbClientProvider;
+    const enviar = jest.fn().mockResolvedValue({});
+    const provider = { enviar } as unknown as DynamoDbClientProvider;
     const tabelas = new DynamoDbTabelasService(config);
     const uow = new DynamoDbUnitOfWork(provider, tabelas);
     await expect(
@@ -85,6 +85,6 @@ describe('DynamoDbUnitOfWork', () => {
         }
       }),
     ).rejects.toBeInstanceOf(LimiteTransacaoExcedidoError);
-    expect(send).not.toHaveBeenCalled();
+    expect(enviar).not.toHaveBeenCalled();
   });
 });

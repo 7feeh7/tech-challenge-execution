@@ -1,5 +1,5 @@
 const SENSITIVE_KEYS =
-  /authorization|jwt|senha|password|secret|token|api[_-]?key|cpf|cnpj|email|body|cookie/i;
+  /authorization|jwt|senha|password|secret|token|api[_-]?key|cpf|cnpj|email|body|cookie|justificativa|responsavelid|motivo|^sub$/i;
 
 export function sanitizeString(value: string): string {
   return value.replace(/\bBearer\s+\S+/gi, 'Bearer [redacted]');
