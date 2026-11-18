@@ -11,6 +11,7 @@ import { correlationIdStorage } from '@/shared/http/correlation-id.context';
 import { JsonLoggerService } from '@/shared/observability/json-logger.service';
 import { MessagingMetricsService } from '@/shared/observability/messaging-metrics.service';
 import { calcularBloqueadoAteRetentativaOutbox } from '../../application/calcular-espera-retentativa-outbox';
+import { OUTBOX_REIVINDICACAO_MS_PADRAO } from '../../application/calcular-prazos-operacionais-execution';
 import type { FilaMensagensGateway } from '../../application/ports/fila-mensagens.gateway';
 import { FILA_MENSAGENS } from '../../application/ports/tokens';
 import { DESTINO_FILA_OS, type EnvelopeMensagem } from '../../envelope';
@@ -48,7 +49,8 @@ export class PublicadorOutboxService
       this.config.get<string>('OUTBOX_PUBLISHER_INTERVAL_MS') ?? '2000',
     );
     this.posseMs = Number(
-      this.config.get<string>('OUTBOX_REIVINDICACAO_MS') ?? '300000',
+      this.config.get<string>('OUTBOX_REIVINDICACAO_MS') ??
+        String(OUTBOX_REIVINDICACAO_MS_PADRAO),
     );
     this.loteMaximo = Number(
       this.config.get<string>('OUTBOX_PUBLISHER_LOTE') ?? '5',

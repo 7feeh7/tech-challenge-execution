@@ -1,5 +1,6 @@
 import type { ConfigService } from '@nestjs/config';
 import { NodeHttpHandler } from '@smithy/node-http-handler';
+import { resolverDeadlineOperacaoAws } from '@/shared/aws/resolver-deadline-operacao-aws';
 
 export interface OpcoesClienteMensageriaAws {
   region: string;
@@ -23,13 +24,11 @@ export function criarOpcoesClienteSqs(
       '12000',
   );
   const maxAttempts = Number(config.get<string>('AWS_SDK_MAX_ATTEMPTS') ?? '3');
-  const brutoDeadline = config.get<string>('SQS_OPERATION_DEADLINE_MS');
-  const operationDeadlineMs = Number(
-    brutoDeadline ?? String(httpAttemptTimeoutMs * maxAttempts),
-  );
-  const deadlineSeguro = Number.isFinite(operationDeadlineMs)
-    ? operationDeadlineMs
-    : httpAttemptTimeoutMs * maxAttempts;
+  const operationDeadlineMs = resolverDeadlineOperacaoAws({
+    deadlineExplicito: config.get<string>('SQS_OPERATION_DEADLINE_MS'),
+    httpAttemptTimeoutMs,
+    maxAttempts,
+  });
   const requestHandler = new NodeHttpHandler({
     connectionTimeout: connectionTimeoutMs,
     requestTimeout: httpAttemptTimeoutMs,
@@ -40,6 +39,6 @@ export function criarOpcoesClienteSqs(
     requestHandler,
     connectionTimeoutMs,
     httpAttemptTimeoutMs,
-    operationDeadlineMs: deadlineSeguro,
+    operationDeadlineMs,
   };
 }

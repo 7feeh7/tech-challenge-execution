@@ -1,8 +1,11 @@
+import { resolverDeadlineOperacaoAws } from '@/shared/aws/resolver-deadline-operacao-aws';
 import {
+  AWS_SDK_MAX_ATTEMPTS_PADRAO,
   calcularPrazosOperacionaisExecution,
   LOTE_CONSUMIDOR_PADRAO,
   LOTE_OUTBOX_PADRAO,
   OUTBOX_GSI_MAX_PAGINAS_PADRAO,
+  OUTBOX_REIVINDICACAO_MS_PADRAO,
 } from '@/shared/messaging/application/calcular-prazos-operacionais-execution';
 import { ConfiguracaoExecutionInvalidaError } from './configuracao-execution-invalida.error';
 
@@ -45,6 +48,41 @@ function numeroInteiroPositivo(
     );
   }
   return convertido;
+}
+
+/** Mesma derivação do runtime: deadline explícito ou timeout da tentativa × tentativas do SDK. */
+function deadlineOperacaoAws(
+  ambiente: AmbienteConfiguracao,
+  chaveDeadline: string,
+  chavesTimeoutTentativa: string[],
+  timeoutTentativaPadraoMs: number,
+): number {
+  const chaveTimeout = chavesTimeoutTentativa.find((chave) =>
+    ambiente[chave]?.trim(),
+  );
+  const explicito = ambiente[chaveDeadline]?.trim();
+  return resolverDeadlineOperacaoAws({
+    deadlineExplicito: explicito
+      ? String(numeroInteiroPositivo(ambiente, chaveDeadline))
+      : undefined,
+    httpAttemptTimeoutMs: chaveTimeout
+      ? numeroInteiroPositivo(ambiente, chaveTimeout)
+      : timeoutTentativaPadraoMs,
+    maxAttempts: numeroInteiroPositivo(
+      ambiente,
+      'AWS_SDK_MAX_ATTEMPTS',
+      AWS_SDK_MAX_ATTEMPTS_PADRAO,
+    ),
+  });
+}
+
+function deadlineSqs(ambiente: AmbienteConfiguracao): number {
+  return deadlineOperacaoAws(
+    ambiente,
+    'SQS_OPERATION_DEADLINE_MS',
+    ['SQS_HTTP_ATTEMPT_TIMEOUT_MS', 'SQS_REQUEST_TIMEOUT_MS'],
+    12_000,
+  );
 }
 
 function exigirPreenchido(
@@ -91,6 +129,11 @@ function validarFlagTriState(
 }
 
 function validarCoerenciaPrazos(ambiente: AmbienteConfiguracao): void {
+  const reivindicacaoMs = numeroInteiroPositivo(
+    ambiente,
+    'OUTBOX_REIVINDICACAO_MS',
+    OUTBOX_REIVINDICACAO_MS_PADRAO,
+  );
   const outboxGsiMaxPaginas = numeroInteiroPositivo(
     ambiente,
     'OUTBOX_GSI_MAX_PAGINAS',
@@ -98,16 +141,13 @@ function validarCoerenciaPrazos(ambiente: AmbienteConfiguracao): void {
   );
 
   const prazos = calcularPrazosOperacionaisExecution({
-    dynamodbOperationDeadlineMs: numeroInteiroPositivo(
+    dynamodbOperationDeadlineMs: deadlineOperacaoAws(
       ambiente,
       'DYNAMODB_OPERATION_DEADLINE_MS',
-      12_000,
+      ['DYNAMODB_HTTP_ATTEMPT_TIMEOUT_MS'],
+      4_000,
     ),
-    sqsOperationDeadlineMs: numeroInteiroPositivo(
-      ambiente,
-      'SQS_OPERATION_DEADLINE_MS',
-      45_000,
-    ),
+    sqsOperationDeadlineMs: deadlineSqs(ambiente),
     sqsLongPollSeconds: numeroInteiroPositivo(
       ambiente,
       'SQS_LONG_POLL_SECONDS',
@@ -129,18 +169,9 @@ function validarCoerenciaPrazos(ambiente: AmbienteConfiguracao): void {
       LOTE_OUTBOX_PADRAO,
     ),
     outboxGsiMaxPaginas,
-    outboxReivindicacaoMs: numeroInteiroPositivo(
-      ambiente,
-      'OUTBOX_REIVINDICACAO_MS',
-      450_000,
-    ),
+    outboxReivindicacaoMs: reivindicacaoMs,
   });
 
-  const reivindicacaoMs = numeroInteiroPositivo(
-    ambiente,
-    'OUTBOX_REIVINDICACAO_MS',
-    450_000,
-  );
   if (reivindicacaoMs < prazos.outboxReivindicacaoMsMinimo) {
     throw new ConfiguracaoExecutionInvalidaError(
       `OUTBOX_REIVINDICACAO_MS (${reivindicacaoMs}) menor que o pior caso do lease (${prazos.outboxReivindicacaoMsMinimo}).`,
@@ -170,11 +201,7 @@ function validarCoerenciaPrazos(ambiente: AmbienteConfiguracao): void {
   }
 
   const sqsPoll = numeroInteiroPositivo(ambiente, 'SQS_LONG_POLL_SECONDS', 10);
-  const sqsDeadline = numeroInteiroPositivo(
-    ambiente,
-    'SQS_OPERATION_DEADLINE_MS',
-    45_000,
-  );
+  const sqsDeadline = deadlineSqs(ambiente);
   if (sqsDeadline < sqsPoll * 1000) {
     throw new ConfiguracaoExecutionInvalidaError(
       `SQS_OPERATION_DEADLINE_MS (${sqsDeadline}) deve cobrir o long polling (${sqsPoll}s).`,

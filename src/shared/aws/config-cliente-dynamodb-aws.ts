@@ -1,5 +1,6 @@
 import type { ConfigService } from '@nestjs/config';
 import { NodeHttpHandler } from '@smithy/node-http-handler';
+import { resolverDeadlineOperacaoAws } from './resolver-deadline-operacao-aws';
 
 export interface OpcoesClienteDynamodbAws {
   region: string;
@@ -21,13 +22,11 @@ export function criarOpcoesClienteDynamodb(
     config.get<string>('DYNAMODB_HTTP_ATTEMPT_TIMEOUT_MS') ?? '4000',
   );
   const maxAttempts = Number(config.get<string>('AWS_SDK_MAX_ATTEMPTS') ?? '3');
-  const brutoDeadline = config.get<string>('DYNAMODB_OPERATION_DEADLINE_MS');
-  const operationDeadlineMs = Number(
-    brutoDeadline ?? String(httpAttemptTimeoutMs * maxAttempts),
-  );
-  const deadlineSeguro = Number.isFinite(operationDeadlineMs)
-    ? operationDeadlineMs
-    : httpAttemptTimeoutMs * maxAttempts;
+  const operationDeadlineMs = resolverDeadlineOperacaoAws({
+    deadlineExplicito: config.get<string>('DYNAMODB_OPERATION_DEADLINE_MS'),
+    httpAttemptTimeoutMs,
+    maxAttempts,
+  });
 
   const requestHandler = new NodeHttpHandler({
     connectionTimeout: connectionTimeoutMs,
@@ -40,6 +39,6 @@ export function criarOpcoesClienteDynamodb(
     requestHandler,
     connectionTimeoutMs,
     httpAttemptTimeoutMs,
-    operationDeadlineMs: deadlineSeguro,
+    operationDeadlineMs,
   };
 }
