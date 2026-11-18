@@ -5,12 +5,15 @@ import {
 } from '@nestjs/platform-fastify';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from '@/app.module';
+import { validarConfiguracaoExecution } from '@/shared/config/validar-configuracao-execution';
 import { configurarAplicacao } from '@/shared/http/aplicacao.config';
 import { JsonLoggerService } from '@/shared/observability/json-logger.service';
 
 const PORT = Number(process.env.PORT ?? 3000);
 
 async function bootstrap() {
+  validarConfiguracaoExecution();
+
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
     new FastifyAdapter(),
@@ -19,6 +22,7 @@ async function bootstrap() {
 
   const logger = app.get(JsonLoggerService);
   app.useLogger(logger);
+  app.enableShutdownHooks();
 
   configurarAplicacao(app);
 

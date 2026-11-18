@@ -4,7 +4,7 @@ import {
   SendMessageCommand,
   SQSClient,
 } from '@aws-sdk/client-sqs';
-import { Injectable } from '@nestjs/common';
+import { Injectable, type OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type {
   FilaMensagensGateway,
@@ -15,7 +15,7 @@ import { criarOpcoesClienteSqs } from '../aws/config-cliente-mensageria-aws';
 import { sinalOperacaoAws } from '../aws/sinal-operacao-aws';
 
 @Injectable()
-export class FilaSqsGateway implements FilaMensagensGateway {
+export class FilaSqsGateway implements FilaMensagensGateway, OnModuleDestroy {
   private readonly client: SQSClient;
   private readonly waitTimeSeconds: number;
   private readonly operationDeadlineMs: number;
@@ -33,6 +33,10 @@ export class FilaSqsGateway implements FilaMensagensGateway {
     this.waitTimeSeconds = Number(
       configService.get<string>('SQS_LONG_POLL_SECONDS') ?? '10',
     );
+  }
+
+  onModuleDestroy(): void {
+    this.client.destroy();
   }
 
   async receber(

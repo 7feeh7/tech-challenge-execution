@@ -36,9 +36,9 @@ describe('DynamoDbTarefaGateway', () => {
 
   beforeEach(() => {
     send = jest.fn();
-    const provider = { client: { send } } as unknown as DynamoDbClientProvider;
+    const provider = { enviar: send } as unknown as DynamoDbClientProvider;
     gateway = new DynamoDbTarefaGateway(provider, tabelas);
-    contexto = new DynamoDbContextoTransacao(provider.client, tabelas);
+    contexto = new DynamoDbContextoTransacao(provider, tabelas);
   });
 
   it('cria com escrita condicional na chave da tarefa', async () => {

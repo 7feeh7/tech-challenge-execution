@@ -5,8 +5,7 @@ import { DynamoDbOutboxRepositorio } from './dynamodb-outbox-repositorio';
 describe('DynamoDbOutboxRepositorio', () => {
   it('lista candidatas e confirma envio com sucesso', async () => {
     const provider = {
-      client: {
-        send: jest
+      enviar: jest
           .fn()
           .mockResolvedValueOnce({
             Items: [
@@ -27,7 +26,6 @@ describe('DynamoDbOutboxRepositorio', () => {
             },
           })
           .mockResolvedValue({}),
-      },
     } as unknown as DynamoDbClientProvider;
     const tabelas = { outbox: 'outbox' } as DynamoDbTabelasService;
     const repo = new DynamoDbOutboxRepositorio(provider, tabelas);
@@ -46,11 +44,9 @@ describe('DynamoDbOutboxRepositorio', () => {
 
   it('retorna null quando reivindicação perde condição', async () => {
     const provider = {
-      client: {
-        send: jest.fn().mockRejectedValue({
-          name: 'ConditionalCheckFailedException',
-        }),
-      },
+      enviar: jest.fn().mockRejectedValue({
+        name: 'ConditionalCheckFailedException',
+      }),
     } as unknown as DynamoDbClientProvider;
     const tabelas = { outbox: 'outbox' } as DynamoDbTabelasService;
     const repo = new DynamoDbOutboxRepositorio(provider, tabelas);
@@ -61,9 +57,7 @@ describe('DynamoDbOutboxRepositorio', () => {
 
   it('propaga erro inesperado na reivindicação', async () => {
     const provider = {
-      client: {
-        send: jest.fn().mockRejectedValue(new Error('dynamodb offline')),
-      },
+      enviar: jest.fn().mockRejectedValue(new Error('dynamodb offline')),
     } as unknown as DynamoDbClientProvider;
     const tabelas = { outbox: 'outbox' } as DynamoDbTabelasService;
     const repo = new DynamoDbOutboxRepositorio(provider, tabelas);
@@ -74,11 +68,9 @@ describe('DynamoDbOutboxRepositorio', () => {
 
   it('retorna false ao confirmar com token inválido', async () => {
     const provider = {
-      client: {
-        send: jest.fn().mockRejectedValue({
-          name: 'ConditionalCheckFailedException',
-        }),
-      },
+      enviar: jest.fn().mockRejectedValue({
+        name: 'ConditionalCheckFailedException',
+      }),
     } as unknown as DynamoDbClientProvider;
     const tabelas = { outbox: 'outbox' } as DynamoDbTabelasService;
     const repo = new DynamoDbOutboxRepositorio(provider, tabelas);

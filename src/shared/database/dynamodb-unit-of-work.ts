@@ -34,10 +34,7 @@ export class DynamoDbUnitOfWork implements UnitOfWork {
   private async executarIsolado<T>(
     trabalho: (contexto: ContextoTransacao) => Promise<T>,
   ): Promise<T> {
-    const contexto = new DynamoDbContextoTransacao(
-      this.dynamo.client,
-      this.tabelas,
-    );
+    const contexto = new DynamoDbContextoTransacao(this.dynamo, this.tabelas);
     const resultado = await trabalho(contexto);
     const itens = [...contexto.obterEscritasPendentes()];
     if (itens.length === 0) {
@@ -57,7 +54,7 @@ export class DynamoDbUnitOfWork implements UnitOfWork {
     itens: import('@aws-sdk/client-dynamodb').TransactWriteItem[],
   ): Promise<void> {
     try {
-      await this.dynamo.client.send(
+      await this.dynamo.enviar(
         new TransactWriteItemsCommand({ TransactItems: itens }),
       );
     } catch (erro) {

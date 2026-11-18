@@ -1,4 +1,9 @@
-import { QueryCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
+import {
+  QueryCommand,
+  type QueryCommandOutput,
+  UpdateItemCommand,
+  type UpdateItemCommandOutput,
+} from '@aws-sdk/client-dynamodb';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import { Injectable } from '@nestjs/common';
 import { DynamoDbClientProvider } from '@/shared/database/dynamodb-client.provider';
@@ -35,7 +40,7 @@ export class DynamoDbOutboxRepositorio {
     let lastKey: Record<string, unknown> | undefined;
 
     while (elegiveis.length < limite) {
-      const resposta = await this.dynamo.client.send(
+      const resposta = await this.dynamo.enviar<QueryCommandOutput>(
         new QueryCommand({
           TableName: this.tabelas.outbox,
           IndexName: OUTBOX_GSI_PUBLICACAO_PENDENTE,
@@ -73,7 +78,7 @@ export class DynamoDbOutboxRepositorio {
   ): Promise<RegistroOutboxDynamodb | null> {
     const agora = new Date().toISOString();
     try {
-      const resposta = await this.dynamo.client.send(
+      const resposta = await this.dynamo.enviar<UpdateItemCommandOutput>(
         new UpdateItemCommand({
           TableName: this.tabelas.outbox,
           Key: marshall({ eventId }),
@@ -113,7 +118,7 @@ export class DynamoDbOutboxRepositorio {
   async confirmarEnvio(eventId: string, token: string): Promise<boolean> {
     const agora = new Date().toISOString();
     try {
-      await this.dynamo.client.send(
+      await this.dynamo.enviar(
         new UpdateItemCommand({
           TableName: this.tabelas.outbox,
           Key: marshall({ eventId }),
@@ -148,29 +153,38 @@ export class DynamoDbOutboxRepositorio {
     token: string,
     bloqueadoAte: string,
     tentativas: number,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const agora = new Date().toISOString();
-    await this.dynamo.client.send(
-      new UpdateItemCommand({
-        TableName: this.tabelas.outbox,
-        Key: marshall({ eventId }),
-        UpdateExpression:
-          'SET tentativas = :tentativas, bloqueadoAte = :bloqueadoAte, tokenReivindicacao = :nulo, #indice = :indice, #ordem = if_not_exists(#ordem, :agora)',
-        ConditionExpression: 'tokenReivindicacao = :token',
-        ExpressionAttributeNames: {
-          '#indice': OUTBOX_ATTR_INDICE_PENDENTE,
-          '#ordem': OUTBOX_ATTR_INDICE_PENDENTE_ORDEM,
-        },
-        ExpressionAttributeValues: marshall({
-          ':tentativas': tentativas,
-          ':bloqueadoAte': bloqueadoAte,
-          ':nulo': null,
-          ':token': token,
-          ':indice': OUTBOX_VALOR_INDICE_PENDENTE,
-          ':agora': agora,
+    try {
+      await this.dynamo.enviar(
+        new UpdateItemCommand({
+          TableName: this.tabelas.outbox,
+          Key: marshall({ eventId }),
+          UpdateExpression:
+            'SET tentativas = :tentativas, bloqueadoAte = :bloqueadoAte, tokenReivindicacao = :nulo, #indice = :indice, #ordem = if_not_exists(#ordem, :agora)',
+          ConditionExpression: 'tokenReivindicacao = :token',
+          ExpressionAttributeNames: {
+            '#indice': OUTBOX_ATTR_INDICE_PENDENTE,
+            '#ordem': OUTBOX_ATTR_INDICE_PENDENTE_ORDEM,
+          },
+          ExpressionAttributeValues: marshall({
+            ':tentativas': tentativas,
+            ':bloqueadoAte': bloqueadoAte,
+            ':nulo': null,
+            ':token': token,
+            ':indice': OUTBOX_VALOR_INDICE_PENDENTE,
+            ':agora': agora,
+          }),
         }),
-      }),
-    );
+      );
+      return true;
+    } catch (erro) {
+      const nome = (erro as { name?: string }).name;
+      if (nome === 'ConditionalCheckFailedException') {
+        return false;
+      }
+      throw erro;
+    }
   }
 
   async contarPendentes(): Promise<number> {
@@ -179,7 +193,7 @@ export class DynamoDbOutboxRepositorio {
     let lastKey: Record<string, unknown> | undefined;
 
     do {
-      const resposta = await this.dynamo.client.send(
+      const resposta = await this.dynamo.enviar<QueryCommandOutput>(
         new QueryCommand({
           TableName: this.tabelas.outbox,
           IndexName: OUTBOX_GSI_PUBLICACAO_PENDENTE,

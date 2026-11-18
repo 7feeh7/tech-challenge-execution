@@ -1,10 +1,13 @@
 import type {
   AttributeValue,
-  DynamoDBClient,
   TransactWriteItem,
 } from '@aws-sdk/client-dynamodb';
-import { GetItemCommand } from '@aws-sdk/client-dynamodb';
+import {
+  GetItemCommand,
+  type GetItemCommandOutput,
+} from '@aws-sdk/client-dynamodb';
 import { marshall } from '@aws-sdk/util-dynamodb';
+import type { DynamoDbClientProvider } from './dynamodb-client.provider';
 import type { DynamoDbTabelasConfig } from './dynamodb-tabelas.config';
 import {
   type ContextoTransacao,
@@ -23,7 +26,7 @@ export class DynamoDbContextoTransacao implements ContextoTransacao {
   private readonly cacheLeitura = new Map<string, Record<string, unknown>>();
 
   constructor(
-    private readonly client: DynamoDBClient,
+    private readonly dynamo: DynamoDbClientProvider,
     private readonly tabelas: DynamoDbTabelasConfig,
   ) {}
 
@@ -45,7 +48,7 @@ export class DynamoDbContextoTransacao implements ContextoTransacao {
       return emCache;
     }
 
-    const resposta = await this.client.send(
+    const resposta = await this.dynamo.enviar<GetItemCommandOutput>(
       new GetItemCommand({
         TableName: tabela,
         Key: marshall(chave) as Record<string, AttributeValue>,

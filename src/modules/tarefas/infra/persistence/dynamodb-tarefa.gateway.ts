@@ -1,4 +1,9 @@
-import { GetItemCommand, QueryCommand } from '@aws-sdk/client-dynamodb';
+import {
+  GetItemCommand,
+  type GetItemCommandOutput,
+  QueryCommand,
+  type QueryCommandOutput,
+} from '@aws-sdk/client-dynamodb';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import { Injectable } from '@nestjs/common';
 import type {
@@ -116,7 +121,7 @@ export class DynamoDbTarefaGateway
   }
 
   async consultarPorId(id: string): Promise<Tarefa | null> {
-    const resposta = await this.dynamo.client.send(
+    const resposta = await this.dynamo.enviar<GetItemCommandOutput>(
       new GetItemCommand({
         TableName: this.tabelas.tarefas,
         Key: marshall({ pk: id }),
@@ -131,7 +136,7 @@ export class DynamoDbTarefaGateway
   }
 
   async listarFila(filtro: FiltroFilaTarefas): Promise<PaginaTarefas> {
-    const resposta = await this.dynamo.client.send(
+    const resposta = await this.dynamo.enviar<QueryCommandOutput>(
       new QueryCommand({
         TableName: this.tabelas.tarefas,
         IndexName: TAREFAS_GSI_FILA,

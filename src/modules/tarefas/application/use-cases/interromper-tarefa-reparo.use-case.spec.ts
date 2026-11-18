@@ -1,11 +1,11 @@
-import type { OutboxGateway } from '@/shared/messaging/application/ports/outbox.gateway';
 import type { UnitOfWork } from '@/shared/database/unit-of-work.port';
+import type { OutboxGateway } from '@/shared/messaging/application/ports/outbox.gateway';
 import { EVENTO_REPARO_INTERROMPIDO } from '@/shared/messaging/envelope';
+import { Tarefa } from '../../domain/entities/tarefa.entity';
 import { SituacaoTarefa } from '../../domain/situacao-tarefa.enum';
 import { TipoTarefa } from '../../domain/tipo-tarefa.enum';
-import { Tarefa } from '../../domain/entities/tarefa.entity';
-import { criarTarefaGatewayMock, criarUnitOfWorkFake } from './test-doubles';
 import { InterromperTarefaReparoUseCase } from './interromper-tarefa-reparo.use-case';
+import { criarTarefaGatewayMock, criarUnitOfWorkFake } from './test-doubles';
 
 describe('InterromperTarefaReparoUseCase', () => {
   const agora = () => new Date('2026-11-15T14:00:00.000Z');
@@ -18,7 +18,12 @@ describe('InterromperTarefaReparoUseCase', () => {
     tarefas = criarTarefaGatewayMock();
     outbox = { registrar: jest.fn() };
     unitOfWork = criarUnitOfWorkFake();
-    caso = new InterromperTarefaReparoUseCase(unitOfWork, tarefas, outbox, agora);
+    caso = new InterromperTarefaReparoUseCase(
+      unitOfWork,
+      tarefas,
+      outbox,
+      agora,
+    );
   });
 
   it('interrompe reparo em INTERRUPCAO_SOLICITADA e persiste fatoTerminalEventId', async () => {

@@ -1,5 +1,6 @@
 name: Deploy Application
 
+# Ordem na main (fora de terraform/**): test → terraform apply → imagem (SHA) → deploy.
 on:
   push:
     branches: [main]
@@ -12,9 +13,12 @@ env:
   AWS_REGION: us-east-1
   K8S_NAMESPACE: execution
   TF_ENVIRONMENT: producao
+  TF_VERSION: 1.15.8
+  TF_STATE_KEY: tech-challenge-execution/producao/terraform.tfstate
+  OS_SERVICE_BASE_URL: http://oficina-api.oficina.svc.cluster.local
 
 concurrency:
-  group: deploy-execution-producao
+  group: execution-producao-pipeline
   cancel-in-progress: false
 
 jobs:
@@ -42,11 +46,69 @@ jobs:
       - run: yarn lint
       - run: yarn build
       - run: yarn test:cov
+      - run: yarn test:int
+      - run: yarn test:e2e
+
+      - name: Terraform fmt e validate
+        uses: hashicorp/setup-terraform@v3
+      - name: Terraform validate (sem backend)
+        working-directory: terraform
+        run: |
+          terraform fmt -check -recursive
+          terraform init -backend=false
+          terraform validate
+
+      - name: Docker build e inspeção
+        run: |
+          docker build -t execution-ci:local .
+          docker run --rm execution-ci:local sh -c '! test -f .env'
+
+  terraform:
+    name: Terraform do serviço
+    if: github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    environment: producao
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        working-directory: terraform
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+            -backend-config="key=${{ env.TF_STATE_KEY }}" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="dynamodb_table=${{ secrets.TF_STATE_LOCK_TABLE }}"
+
+      - name: Terraform Plan
+        working-directory: terraform
+        run: |
+          terraform plan -no-color \
+            -var="environment=${{ env.TF_ENVIRONMENT }}" \
+            -out=tfplan
+
+      - name: Terraform Apply
+        working-directory: terraform
+        run: terraform apply -auto-approve tfplan
 
   deploy:
     name: Deploy no EKS
     if: github.ref == 'refs/heads/main'
-    needs: test
+    needs: [test, terraform]
     runs-on: ubuntu-latest
     environment: producao
     permissions:
@@ -64,20 +126,39 @@ jobs:
         id: ssm
         run: |
           PREFIX="/tech-challenge/${{ env.TF_ENVIRONMENT }}"
-          ECR=$(aws ssm get-parameter --name "${PREFIX}/infra/execution_ecr_repository_url" --query Parameter.Value --output text 2>/dev/null || echo "")
-          if [ -z "$ECR" ]; then
-            echo "ECR ainda não publicado no SSM; confirmar após terraform apply na E37"
-            ECR="PLACEHOLDER_ECR"
-          fi
+          ECR=$(aws ssm get-parameter --name "${PREFIX}/infra/execution_ecr_repository_url" --query Parameter.Value --output text)
           EKS=$(aws ssm get-parameter --name "${PREFIX}/infra/eks_cluster_name" --query Parameter.Value --output text)
           IRSA=$(aws ssm get-parameter --name "${PREFIX}/infra/execution_irsa_role_arn" --query Parameter.Value --output text)
           API_GATEWAY_URL=$(aws ssm get-parameter --name "${PREFIX}/infra/api_gateway_url" --query Parameter.Value --output text)
-          EXECUTION_IN=$(aws ssm get-parameter --name "${PREFIX}/infra/execution_in_queue_url" --query Parameter.Value --output text 2>/dev/null || echo "")
+          EXECUTION_IN=$(aws ssm get-parameter --name "${PREFIX}/infra/execution_in_queue_url" --query Parameter.Value --output text)
+          EXECUTION_IN_DLQ=$(aws ssm get-parameter --name "${PREFIX}/infra/execution_in_dlq_url" --query Parameter.Value --output text 2>/dev/null || aws ssm get-parameter --name "${PREFIX}/infra/execution_in_dlq_url" --query Parameter.Value --output text)
+          OS_IN=$(aws ssm get-parameter --name "${PREFIX}/infra/os_in_queue_url" --query Parameter.Value --output text)
+          JWT_PUBLIC_ARN=$(aws ssm get-parameter --name "${PREFIX}/infra/jwt_public_secret_arn" --query Parameter.Value --output text)
+          TOKEN_EXECUTION_OS_ARN=$(aws ssm get-parameter --name "${PREFIX}/infra/token_execution_os_secret_arn" --query Parameter.Value --output text)
           echo "ecr=$ECR" >> $GITHUB_OUTPUT
           echo "eks=$EKS" >> $GITHUB_OUTPUT
           echo "irsa=$IRSA" >> $GITHUB_OUTPUT
           echo "api_gateway_url=$API_GATEWAY_URL" >> $GITHUB_OUTPUT
           echo "execution_in=$EXECUTION_IN" >> $GITHUB_OUTPUT
+          echo "execution_in_dlq=$EXECUTION_IN_DLQ" >> $GITHUB_OUTPUT
+          echo "os_in=$OS_IN" >> $GITHUB_OUTPUT
+          echo "jwt_public_arn=$JWT_PUBLIC_ARN" >> $GITHUB_OUTPUT
+          echo "token_execution_os_arn=$TOKEN_EXECUTION_OS_ARN" >> $GITHUB_OUTPUT
+
+      - name: Obter segredos da aplicação
+        id: secrets
+        env:
+          JWT_PUBLIC_ARN: ${{ steps.ssm.outputs.jwt_public_arn }}
+          TOKEN_EXECUTION_OS_ARN: ${{ steps.ssm.outputs.token_execution_os_arn }}
+        run: |
+          JWT_JSON=$(aws secretsmanager get-secret-value --secret-id "$JWT_PUBLIC_ARN" --query SecretString --output text)
+          JWT=$(echo "$JWT_JSON" | jq -r 'if .publicKey then .publicKey elif .public_key then .public_key else . end')
+          TOKEN_OS=$(aws secretsmanager get-secret-value --secret-id "$TOKEN_EXECUTION_OS_ARN" --query SecretString --output text | jq -r 'if .token then .token else . end')
+          echo "jwt_public<<EOF" >> $GITHUB_OUTPUT
+          echo "$JWT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "::add-mask::$TOKEN_OS"
+          echo "os_token=$TOKEN_OS" >> $GITHUB_OUTPUT
 
       - uses: aws-actions/amazon-ecr-login@v2
 
@@ -95,16 +176,44 @@ jobs:
             --region "$AWS_REGION" \
             --name "${{ steps.ssm.outputs.eks }}"
 
-      - name: ServiceAccount e ConfigMap
+      - name: Verificar GSIs DynamoDB
+        run: |
+          PREFIX="/tech-challenge/${{ env.TF_ENVIRONMENT }}"
+          TAREFAS=$(aws ssm get-parameter --name "${PREFIX}/infra/dynamodb_tarefas_table_name" --query Parameter.Value --output text 2>/dev/null || echo "tech-challenge-producao-execution-tarefas")
+          OUTBOX=$(aws ssm get-parameter --name "${PREFIX}/infra/dynamodb_outbox_table_name" --query Parameter.Value --output text 2>/dev/null || echo "tech-challenge-producao-execution-outbox")
+          for GSI in gsi-fila-tarefas gsi-publicacao-pendente; do
+            STATUS=$(aws dynamodb describe-table --table-name "$TAREFAS" --query "Table.GlobalSecondaryIndexes[?IndexName=='${GSI}'].IndexStatus" --output text 2>/dev/null || true)
+            if [ -n "$STATUS" ] && [ "$STATUS" != "ACTIVE" ]; then
+              echo "GSI ${GSI} em ${TAREFAS} não está ACTIVE (${STATUS})"
+              exit 1
+            fi
+          done
+          STATUS_OUTBOX=$(aws dynamodb describe-table --table-name "$OUTBOX" --query "Table.GlobalSecondaryIndexes[?IndexName=='gsi-publicacao-pendente'].IndexStatus" --output text 2>/dev/null || true)
+          if [ -n "$STATUS_OUTBOX" ] && [ "$STATUS_OUTBOX" != "ACTIVE" ]; then
+            echo "GSI gsi-publicacao-pendente em ${OUTBOX} não está ACTIVE"
+            exit 1
+          fi
+
+      - name: ServiceAccount, ConfigMap e Secret
         env:
           IRSA_ARN: ${{ steps.ssm.outputs.irsa }}
           API_GATEWAY_URL: ${{ steps.ssm.outputs.api_gateway_url }}
           SQS_EXECUTION_IN_URL: ${{ steps.ssm.outputs.execution_in }}
+          SQS_EXECUTION_IN_DLQ_URL: ${{ steps.ssm.outputs.execution_in_dlq }}
+          SQS_OS_IN_URL: ${{ steps.ssm.outputs.os_in }}
         run: |
           sed "s|EXECUTION_IRSA_ROLE_ARN|${IRSA_ARN}|g" k8s/serviceaccount.yaml | kubectl apply -f -
           sed -e "s|__API_GATEWAY_URL__|${API_GATEWAY_URL}|g" \
               -e "s|__SQS_EXECUTION_IN_URL__|${SQS_EXECUTION_IN_URL}|g" \
+              -e "s|__SQS_EXECUTION_IN_DLQ_URL__|${SQS_EXECUTION_IN_DLQ_URL}|g" \
+              -e "s|__SQS_OS_IN_URL__|${SQS_OS_IN_URL}|g" \
+              -e "s|__OS_SERVICE_BASE_URL__|${OS_SERVICE_BASE_URL}|g" \
               k8s/configmap.yaml | kubectl apply -f -
+          kubectl create secret generic execution-secret \
+            --namespace "$K8S_NAMESPACE" \
+            --from-literal=JWT_PUBLIC_KEY='${{ steps.secrets.outputs.jwt_public }}' \
+            --from-literal=OS_SERVICE_TOKEN='${{ steps.secrets.outputs.os_token }}' \
+            --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Deployment, Service e HPA
         env:
@@ -120,7 +229,7 @@ jobs:
       - name: Aguardar rollout
         run: |
           kubectl rollout status deployment/execution-api \
-            --namespace "$K8S_NAMESPACE" --timeout=180s
+            --namespace "$K8S_NAMESPACE" --timeout=300s
 
       - name: Smoke test — health readiness
         run: |

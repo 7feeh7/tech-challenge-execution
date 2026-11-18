@@ -25,6 +25,7 @@ spec:
       annotations:
         ad.datadoghq.com/api.logs: '[{"source":"nodejs","service":"execution-api"}]'
     spec:
+      terminationGracePeriodSeconds: 720
       serviceAccountName: execution-api
       securityContext:
         runAsNonRoot: true
@@ -48,6 +49,8 @@ spec:
           envFrom:
             - configMapRef:
                 name: execution-config
+            - secretRef:
+                name: execution-secret
           resources:
             requests:
               cpu: "100m"

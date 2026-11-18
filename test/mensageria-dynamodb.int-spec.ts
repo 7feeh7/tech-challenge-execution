@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { GetItemCommand } from '@aws-sdk/client-dynamodb';
+import { GetItemCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import { ConfigModule } from '@nestjs/config';
 import { Test, type TestingModule } from '@nestjs/testing';
@@ -378,6 +378,83 @@ describe('Mensageria e DynamoDB (integração)', () => {
       ).Item ?? {},
     );
     expect(estadoFinal.enviadoEm).toBeDefined();
+  });
+
+  it('publicação bem-sucedida com falha na confirmação republica mesmo eventId', async () => {
+    const envelope = criarEnvelope(randomUUID());
+    const outboxId = `out-confirm-fail-${randomUUID()}`;
+    await unitOfWork.executar(async (ctx) => {
+      await outbox.registrar(ctx, {
+        eventId: outboxId,
+        eventType: 'execution.diagnostico-iniciado.v1',
+        envelope,
+        correlationId: envelope.correlationId,
+        causationId: envelope.eventId,
+        destino: DESTINO_FILA_OS,
+      });
+    });
+
+    const outboxRepo = modulo.get(DynamoDbOutboxRepositorio);
+    const tokenA = randomUUID();
+    const registroA = await outboxRepo.reivindicar(
+      outboxId,
+      tokenA,
+      new Date(Date.now() + 300_000).toISOString(),
+    );
+    expect(registroA?.tokenReivindicacao).toBe(tokenA);
+
+    const confirmarOriginal = outboxRepo.confirmarEnvio.bind(outboxRepo);
+    outboxRepo.confirmarEnvio = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('falha simulada DynamoDB'))
+      .mockImplementation(confirmarOriginal);
+
+    await publicador.publicarMensagemReivindicada(registroA!);
+    expect(filaMemoria.enviados.length).toBeGreaterThanOrEqual(1);
+    expect(JSON.parse(filaMemoria.enviados[0]?.corpo ?? '{}').eventId).toBe(
+      envelope.eventId,
+    );
+
+    await client.send(
+      new UpdateItemCommand({
+        TableName: tabelas.outbox,
+        Key: marshall({ eventId: outboxId }),
+        UpdateExpression:
+          'SET bloqueadoAte = :passado, tokenReivindicacao = :nulo',
+        ExpressionAttributeValues: marshall({
+          ':passado': new Date(Date.now() - 60_000).toISOString(),
+          ':nulo': null,
+        }),
+      }),
+    );
+
+    const tokenB = randomUUID();
+    const registroB = await outboxRepo.reivindicar(
+      outboxId,
+      tokenB,
+      new Date(Date.now() + 300_000).toISOString(),
+    );
+    expect(registroB).toBeDefined();
+    outboxRepo.confirmarEnvio = confirmarOriginal;
+
+    await publicador.publicarMensagemReivindicada(registroB!);
+
+    const item = await client.send(
+      new GetItemCommand({
+        TableName: tabelas.outbox,
+        Key: marshall({ eventId: outboxId }),
+      }),
+    );
+    const estado = unmarshall(item.Item ?? {});
+    expect(estado.enviadoEm).toBeDefined();
+    expect(
+      filaMemoria.enviados.filter((e) => {
+        const parsed = JSON.parse(e.corpo) as { eventId?: string };
+        return parsed.eventId === envelope.eventId;
+      }),
+    ).toHaveLength(2);
+    const corpos = filaMemoria.enviados.map((e) => JSON.parse(e.corpo));
+    expect(corpos[0].eventId).toBe(corpos[1].eventId);
   });
 
   it('falha de publicação mantém outbox pendente com backoff', async () => {

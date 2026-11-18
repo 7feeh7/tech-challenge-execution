@@ -24,6 +24,6 @@ variable "sqs_max_receive_count" {
 
 variable "sqs_visibility_timeout_seconds" {
   type        = number
-  description = "Visibilidade maior que o processamento previsto"
-  default     = 120
+  description = "Visibilidade maior que o pior caso do ciclo do consumidor (E25)"
+  default     = 720
 }

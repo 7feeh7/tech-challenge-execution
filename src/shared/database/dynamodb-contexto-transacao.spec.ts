@@ -1,5 +1,11 @@
-import type { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import type { DynamoDbClientProvider } from './dynamodb-client.provider';
 import { DynamoDbContextoTransacao } from './dynamodb-contexto-transacao';
+
+function criarDynamoFake(
+  enviar: jest.Mock,
+): Pick<DynamoDbClientProvider, 'enviar'> {
+  return { enviar };
+}
 
 describe('DynamoDbContextoTransacao', () => {
   const tabelas = {
@@ -9,22 +15,22 @@ describe('DynamoDbContextoTransacao', () => {
   };
 
   it('usa cache de leitura na mesma transação', async () => {
-    const send = jest.fn().mockResolvedValue({
+    const enviar = jest.fn().mockResolvedValue({
       Item: { campo: { S: 'valor' } },
     });
     const contexto = new DynamoDbContextoTransacao(
-      { send } as unknown as DynamoDBClient,
+      criarDynamoFake(enviar) as DynamoDbClientProvider,
       tabelas,
     );
     await contexto.obterRegistro('mensagens', { eventId: 'e1' });
     await contexto.obterRegistro('mensagens', { eventId: 'e1' });
-    expect(send).toHaveBeenCalledTimes(1);
+    expect(enviar).toHaveBeenCalledTimes(1);
   });
 
   it('deserializa tipos complexos do DynamoDB', async () => {
     const contexto = new DynamoDbContextoTransacao(
-      {
-        send: jest.fn().mockResolvedValue({
+      criarDynamoFake(
+        jest.fn().mockResolvedValue({
           Item: {
             n: { N: '42' },
             b: { BOOL: true },
@@ -33,7 +39,7 @@ describe('DynamoDbContextoTransacao', () => {
             z: { NULL: true },
           },
         }),
-      } as unknown as DynamoDBClient,
+      ) as DynamoDbClientProvider,
       tabelas,
     );
     const registro = await contexto.obterRegistro('mensagens', {
@@ -48,7 +54,9 @@ describe('DynamoDbContextoTransacao', () => {
 
   it('retorna null quando item não existe', async () => {
     const contexto = new DynamoDbContextoTransacao(
-      { send: jest.fn().mockResolvedValue({}) } as unknown as DynamoDBClient,
+      criarDynamoFake(
+        jest.fn().mockResolvedValue({}),
+      ) as DynamoDbClientProvider,
       tabelas,
     );
     await expect(
