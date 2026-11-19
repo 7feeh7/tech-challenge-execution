@@ -40,7 +40,7 @@ Swagger: `GET /docs` após `yarn start:dev`.
 
 ## CI e deploy
 
-- PR: validação na `develop`
+- PR: validação na `develop` (lint, build, testes, auditoria de dependências com `audit-ci` e secret scan). O SonarCloud está temporariamente desabilitado (passos comentados no `pr-validation.yml`), a reativar no checkpoint 2.3 do runbook de implantação
 - `main` + `environment: producao`: testes, `terraform apply` (pasta `terraform/`), imagem ECR por SHA, rollout EKS — ver `.github/workflows/deploy.yml`
 - **Sem deploy automático a partir da `develop`**
 

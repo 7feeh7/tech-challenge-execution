@@ -35,8 +35,9 @@ import { MensageriaModule } from '@/shared/messaging/mensageria.module';
 import { ObservabilityModule } from '@/shared/observability/observability.module';
 import {
   criarClienteDynamodbTeste,
-  garantirTabelasDynamodb,
-  obterNomesTabelasTeste,
+  criarTabelasIsoladasDynamodb,
+  type NomesTabelasDynamodb,
+  removerTabelasDynamodb,
 } from './helpers/dynamodb-test-setup';
 import { FilaMensagensMemoriaGateway } from './helpers/fila-mensagens-memoria.gateway';
 
@@ -88,7 +89,7 @@ function overrideRoteadorIntegracao(
 
 describe('Mensageria e DynamoDB (integração)', () => {
   const client = criarClienteDynamodbTeste();
-  const tabelas = obterNomesTabelasTeste();
+  let tabelas: NomesTabelasDynamodb;
   let modulo: TestingModule;
   let unitOfWork: UnitOfWork;
   let processar: ProcessarMensagemEntradaService;
@@ -97,15 +98,15 @@ describe('Mensageria e DynamoDB (integração)', () => {
   let filaMemoria: FilaMensagensMemoriaGateway;
   let publicador: PublicadorOutboxService;
 
-  beforeAll(async () => {
-    await garantirTabelasDynamodb(client);
-  });
-
   afterAll(() => {
     client.destroy();
   });
 
   beforeEach(async () => {
+    // Tabelas novas por teste: o lote do publicador reivindica até cinco pendentes,
+    // então itens deixados por outros testes na outbox tornavam a reivindicação
+    // concorrente intermitente.
+    tabelas = await criarTabelasIsoladasDynamodb(client, 'int-mensageria');
     filaMemoria = new FilaMensagensMemoriaGateway();
     const filaExecution = 'https://sqs.local/execution-in';
     const filaOs = 'https://sqs.local/os-in';
@@ -147,6 +148,7 @@ describe('Mensageria e DynamoDB (integração)', () => {
 
   afterEach(async () => {
     await modulo.close();
+    await removerTabelasDynamodb(client, tabelas);
   });
 
   function criarEnvelope(
@@ -320,13 +322,9 @@ describe('Mensageria e DynamoDB (integração)', () => {
       publicador.reivindicarLote(),
       publicador.reivindicarLote(),
     ]);
-    const totalReivindicado = a.length + b.length;
-    expect(totalReivindicado).toBeGreaterThanOrEqual(1);
-    if (a.length > 0 && b.length > 0) {
-      expect(
-        new Set([...a.map((x) => x.eventId), ...b.map((x) => x.eventId)]).size,
-      ).toBe(1);
-    }
+    expect([...a, ...b].map((registro) => registro.eventId)).toEqual([
+      outboxId,
+    ]);
   });
 
   it('publicação bem-sucedida com falha na confirmação mantém registro recuperável', async () => {

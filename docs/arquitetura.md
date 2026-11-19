@@ -49,3 +49,12 @@ Fila `tech-challenge-producao-execution-in` + DLQ `tech-challenge-producao-execu
 ## Implantação
 
 Pipelines em `.github/workflows/`; deploy efetivo somente na `main` com _environment_ `producao`, conforme runbook da Fase 4.
+
+### Exposição na borda
+
+O Service `execution-api` é `NodePort` com `nodePort: 30082` (`port: 80` e `targetPort: http` mantidos). O listener 8082 do NLB interno encaminha ao target group `tech-challenge-producao-exec-tg` (porta 30082, health check HTTP em `/health`, rota fora do prefixo `v1`). A correspondência vem de `servicos_borda` em `terraform/rotas.tf` do `tech-challenge-infra-kubernetes`; mudar a porta exige alterar os dois repositórios.
+
+### Verificações do deploy e da validação
+
+- O deploy interrompe se a tabela de tarefas não tiver o `gsi-fila-tarefas` ou a outbox não tiver o `gsi-publicacao-pendente` com status `ACTIVE`; tabela inexistente ou erro do `describe-table` também interrompem.
+- O `pr-validation` roda `audit-ci` 7.1.0 em dois passos: produção (`--high --skip-dev`) sem exceção e completa com `audit-ci.jsonc`, que permite só o GHSA-fc5q-39xc-vjpf (`picomatch`, desenvolvimento) até 2026-12-18. A imagem final copia só as dependências de produção (estágio `deps` do `Dockerfile`).
