@@ -1,0 +1,30 @@
+{
+  // Auditoria completa (inclui devDependencies): falha para qualquer
+  // vulnerabilidade high ou critical, exceto a exceção temporária abaixo.
+  // A auditoria de produção (`--skip-dev`) roda sem este arquivo e sem exceção.
+  "high": true,
+  "allowlist": [
+    {
+      // picomatch <=4.0.7 (ReDoS em extglobs repetidos).
+      // Justificativa: não há versão corrigida publicada e a cadeia é só de
+      // desenvolvimento (@nestjs/cli, @nestjs/schematics, jest, ts-loader);
+      // o picomatch não vai para a imagem de produção: o Dockerfile instala
+      // só dependências de produção (`yarn install --production`) e a busca
+      // por picomatch em /app/node_modules da imagem não encontra nada.
+      // A auditoria --skip-dev também passa sem exceção.
+      // Em 2026-11-18 o yarn audit deixou de classificá-lo como alto ou
+      // crítico (o audit-ci avisa "Consider not allowlisting"); a entrada
+      // fica como exceção preventiva e sai na reavaliação se seguir sem uso.
+      // Prazo: 2026-12-18. Reavaliação obrigatória no checkpoint anterior à
+      // implantação. Decisão do autor em 2026-11-18.
+      // Remoção: quando houver picomatch corrigido alcançável pelas
+      // dependências, ou no checkpoint se a imagem de produção passar a
+      // contê-lo.
+      "GHSA-fc5q-39xc-vjpf": {
+        "active": true,
+        "notes": "picomatch <=4.0.7 (ReDoS em extglobs repetidos), só em cadeias de desenvolvimento (@nestjs/cli, @nestjs/schematics, jest, ts-loader); sem versão corrigida publicada, e fora da imagem de produção (instala só dependências de produção). Prazo 2026-12-18, com reavaliação obrigatória no checkpoint anterior à implantação. Remover quando houver picomatch corrigido alcançável pelas dependências, ou no checkpoint se a imagem de produção passar a contê-lo.",
+        "expiry": "2026-12-18"
+      }
+    }
+  ]
+}

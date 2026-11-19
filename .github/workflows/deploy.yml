@@ -178,21 +178,28 @@ jobs:
 
       - name: Verificar GSIs DynamoDB
         run: |
+          set -euo pipefail
           PREFIX="/tech-challenge/${{ env.TF_ENVIRONMENT }}"
           TAREFAS=$(aws ssm get-parameter --name "${PREFIX}/infra/dynamodb_tarefas_table_name" --query Parameter.Value --output text 2>/dev/null || echo "tech-challenge-producao-execution-tarefas")
           OUTBOX=$(aws ssm get-parameter --name "${PREFIX}/infra/dynamodb_outbox_table_name" --query Parameter.Value --output text 2>/dev/null || echo "tech-challenge-producao-execution-outbox")
-          for GSI in gsi-fila-tarefas gsi-publicacao-pendente; do
-            STATUS=$(aws dynamodb describe-table --table-name "$TAREFAS" --query "Table.GlobalSecondaryIndexes[?IndexName=='${GSI}'].IndexStatus" --output text 2>/dev/null || true)
-            if [ -n "$STATUS" ] && [ "$STATUS" != "ACTIVE" ]; then
-              echo "GSI ${GSI} em ${TAREFAS} não está ACTIVE (${STATUS})"
+
+          # Fail-closed: tabela inexistente, erro do describe-table ou índice ausente
+          # interrompem o deploy; só o status ACTIVE libera o rollout.
+          verificar_gsi() {
+            local tabela="$1"
+            local indice="$2"
+            local status
+            status=$(aws dynamodb describe-table --table-name "$tabela" \
+              --query "Table.GlobalSecondaryIndexes[?IndexName=='${indice}'].IndexStatus | [0] || 'ausente'" \
+              --output text)
+            if [ "$status" != "ACTIVE" ]; then
+              echo "::error::GSI ${indice} em ${tabela} não está ACTIVE (status: ${status})"
               exit 1
             fi
-          done
-          STATUS_OUTBOX=$(aws dynamodb describe-table --table-name "$OUTBOX" --query "Table.GlobalSecondaryIndexes[?IndexName=='gsi-publicacao-pendente'].IndexStatus" --output text 2>/dev/null || true)
-          if [ -n "$STATUS_OUTBOX" ] && [ "$STATUS_OUTBOX" != "ACTIVE" ]; then
-            echo "GSI gsi-publicacao-pendente em ${OUTBOX} não está ACTIVE"
-            exit 1
-          fi
+          }
+
+          verificar_gsi "$TAREFAS" gsi-fila-tarefas
+          verificar_gsi "$OUTBOX" gsi-publicacao-pendente
 
       - name: ServiceAccount, ConfigMap e Secret
         env:
@@ -201,6 +208,8 @@ jobs:
           SQS_EXECUTION_IN_URL: ${{ steps.ssm.outputs.execution_in }}
           SQS_EXECUTION_IN_DLQ_URL: ${{ steps.ssm.outputs.execution_in_dlq }}
           SQS_OS_IN_URL: ${{ steps.ssm.outputs.os_in }}
+          JWT_PUBLIC_KEY: ${{ steps.secrets.outputs.jwt_public }}
+          OS_SERVICE_TOKEN: ${{ steps.secrets.outputs.os_token }}
         run: |
           sed "s|EXECUTION_IRSA_ROLE_ARN|${IRSA_ARN}|g" k8s/serviceaccount.yaml | kubectl apply -f -
           sed -e "s|__API_GATEWAY_URL__|${API_GATEWAY_URL}|g" \
@@ -211,8 +220,8 @@ jobs:
               k8s/configmap.yaml | kubectl apply -f -
           kubectl create secret generic execution-secret \
             --namespace "$K8S_NAMESPACE" \
-            --from-literal=JWT_PUBLIC_KEY='${{ steps.secrets.outputs.jwt_public }}' \
-            --from-literal=OS_SERVICE_TOKEN='${{ steps.secrets.outputs.os_token }}' \
+            --from-literal=JWT_PUBLIC_KEY="$JWT_PUBLIC_KEY" \
+            --from-literal=OS_SERVICE_TOKEN="$OS_SERVICE_TOKEN" \
             --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Deployment, Service e HPA

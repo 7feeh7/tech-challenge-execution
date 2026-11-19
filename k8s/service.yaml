@@ -6,11 +6,15 @@ metadata:
   labels:
     app: execution-api
 spec:
-  type: ClusterIP
+  # NodePort fixo: o target group `tech-challenge-producao-exec-tg` (listener 8082 do
+  # NLB interno) aponta para 30082; sem ele o health check falha. O tráfego público
+  # entra só pelo API Gateway. O ClusterIP (port 80) segue valendo para as chamadas internas.
+  type: NodePort
   selector:
     app: execution-api
   ports:
     - name: http
       port: 80
       targetPort: http
+      nodePort: 30082
       protocol: TCP
