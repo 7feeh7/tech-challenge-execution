@@ -1,0 +1,12 @@
+/dist
+/node_modules
+/coverage
+.scannerwork/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+.idea
+.vscode
+.terraform/

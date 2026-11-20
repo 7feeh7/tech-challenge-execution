@@ -1,0 +1,6 @@
+{
+  // Auditoria completa (inclui devDependencies): falha para qualquer
+  // vulnerabilidade high ou critical, sem exceções.
+  // A auditoria de produção (`--skip-dev`) roda sem este arquivo.
+  "high": true
+}
